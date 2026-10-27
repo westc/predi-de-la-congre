@@ -1,0 +1,1327 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Territorios La Villa</title>
+<script>
+// Which congregation's Sheet this app talks to: ?api=ID from the QR code (the Apps Script deployment id).
+// It is remembered, and kept in the address so "Instalar" / "Agregar a inicio" opens the app already connected.
+(function () {
+  var q = new URLSearchParams(location.search), saved = null;
+  var ok = function (v) { return /^[\w-]{20,200}$/.test(v || ''); };
+  var id = q.get('api');
+  try { saved = localStorage.getItem('predi-api'); } catch (e) {}
+  if (ok(id)) { try { localStorage.setItem('predi-api', id); } catch (e) {} } else id = ok(saved) ? saved : '';
+  window.API_ID = id;
+  window.START_SALIDA = q.get('salida') || '';
+  window.DEMO = q.has('demo') || (!id && /^(localhost|127\.0\.0\.1)$/.test(location.hostname));
+  if (id && !q.has('demo')) history.replaceState(null, '', location.pathname + '?api=' + id);
+})();
+</script>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#1f3d8a">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Territorios">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.17.0/dist/leaflet-geoman.css">
+<style>
+  :root { --fg:#1d2330; --muted:#6b7280; --line:#e3e6eb; --brand:#1f3d8a; --accent:#1f4fbf; --card:#fff; --bg:#f4f5f8; }
+  * { box-sizing:border-box; }
+  html, body { height:100%; margin:0; }
+  body { font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; color:var(--fg); background:var(--bg); display:flex; flex-direction:column; }
+  header { display:flex; align-items:center; gap:8px 12px; padding:8px 12px; background:var(--brand); color:#fff; flex-wrap:wrap; }
+  h1 { font-size:16px; margin:0; font-weight:600; white-space:nowrap; }
+  #openfull { color:#d3dcf5; font-size:13px; text-decoration:none; display:none; }
+  nav { display:flex; gap:2px; margin-left:auto; }
+  nav button { background:transparent; border:0; color:#d3dcf5; padding:6px 9px; border-radius:6px; font:inherit; font-size:14px; cursor:pointer; }
+  nav button.on { background:#fff; color:var(--brand); font-weight:600; }
+  main { flex:1; display:flex; flex-direction:column; min-height:0; }
+  #map { flex:1; min-height:42vh; }
+  #panel { background:var(--card); border-top:1px solid var(--line); overflow:auto; max-height:52vh; padding:12px 16px 24px; }
+  @media (min-width:800px) {
+    main { flex-direction:row-reverse; }
+    #panel { width:390px; max-height:none; border-top:0; border-right:1px solid var(--line); }
+  }
+  h2 { font-size:17px; margin:0 0 8px; }
+  h3 { font-size:14px; margin:18px 0 6px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+  p { margin:6px 0; }
+  .muted { color:var(--muted); font-size:13px; }
+  label { display:block; font-size:13px; color:var(--muted); margin:8px 0 2px; }
+  input[type=text], input[type=number], input[type=date], input[type=password], select, textarea {
+    width:100%; font:inherit; padding:7px 9px; border:1px solid #cfd4dc; border-radius:7px; background:#fff; color:var(--fg);
+  }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:0 10px; }
+  button.b { font:inherit; font-size:14px; padding:7px 12px; border-radius:7px; border:1px solid #cfd4dc; background:#fff; color:var(--fg); cursor:pointer; }
+  button.b.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+  button.b.danger { color:#b42318; border-color:#f1b5ae; }
+  button.b.small { font-size:12px; padding:3px 8px; }
+  a.b { display:inline-block; text-decoration:none; font-size:14px; padding:7px 12px; border-radius:7px; border:1px solid #cfd4dc; background:#fff; color:var(--fg); }
+  a.b.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+  .actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+  .seg { display:inline-flex; border:1px solid #cfd4dc; border-radius:8px; overflow:hidden; }
+  .seg button { font:inherit; font-size:13px; border:0; background:#fff; padding:6px 10px; cursor:pointer; color:var(--fg); }
+  .seg button + button { border-left:1px solid #cfd4dc; }
+  .seg button.on { background:var(--accent); color:#fff; }
+  .seg button.on[data-v=completo] { background:#1e8e4e; }
+  .seg button.on[data-v=parcial] { background:#d9820b; }
+  .seg button.on[data-v=no] { background:#b42318; }
+  .card { border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin:10px 0; }
+  .card-h { font-weight:600; }
+  .row { padding:10px 0; border-top:1px solid var(--line); }
+  .row:first-of-type { border-top:0; }
+  .row-t { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:6px; font-weight:600; }
+  .row .nota { margin-top:6px; }
+  .pin-note { background:#fff4ce; color:#6b4e00; border-radius:6px; padding:4px 8px; margin:4px 0 6px; font-size:13px; }
+  .sel-row { display:flex; align-items:center; gap:8px; padding:5px 0; }
+  .sel-row b { white-space:nowrap; min-width:58px; }
+  .sel-row input { padding:5px 8px; font-size:13px; }
+  .list-item { display:flex; justify-content:space-between; gap:8px; align-items:flex-start; padding:8px 0; border-top:1px solid var(--line); }
+  .list-item:first-child { border-top:0; }
+  .terr-row { display:flex; align-items:center; gap:8px; padding:5px 0; border-top:1px solid var(--line); font-size:14px; }
+  .terr-row .grow { flex:1; }
+  .terr-row.on { background:#eef2ff; }
+  .legend { display:flex; flex-wrap:wrap; gap:6px 12px; font-size:13px; margin:8px 0; }
+  .sw { display:inline-block; width:12px; height:12px; border-radius:3px; vertical-align:-1px; margin-right:4px; border:1px solid rgba(0,0,0,.25); }
+  .rangos { display:flex; align-items:center; gap:6px; flex-wrap:wrap; font-size:13px; }
+  .rangos input { width:64px; padding:4px 6px; }
+  details summary { cursor:pointer; color:var(--accent); font-size:13px; margin:6px 0; }
+  .done { color:#1e8e4e; } .part { color:#d9820b; } .not { color:#b42318; }
+  #toast { position:fixed; left:50%; bottom:20px; transform:translateX(-50%); background:#1d2330; color:#fff; padding:9px 16px; border-radius:8px; font-size:14px; opacity:0; transition:opacity .2s; pointer-events:none; z-index:3000; max-width:90vw; }
+  #toast.show { opacity:.95; }
+  #saving { position:fixed; inset:0; background:rgba(255,255,255,.6); display:none; align-items:center; justify-content:center; z-index:2500; }
+  body.busy #saving { display:flex; }
+  #saving .box { background:#1d2330; color:#fff; padding:14px 22px; border-radius:12px; display:flex; align-items:center; gap:12px; font-size:15px; box-shadow:0 6px 24px rgba(0,0,0,.25); }
+  #saving .spin { width:20px; height:20px; border:3px solid rgba(255,255,255,.3); border-top-color:#fff; border-radius:50%; animation:spin .8s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  #pending { display:none; align-items:center; gap:8px; padding:6px 12px; background:#fff1e0; color:#7a4100; font-size:14px; border-bottom:1px solid #f3c99a; flex-wrap:wrap; }
+  #pending.show { display:flex; }
+  #pending .grow { flex:1; }
+  #demo { background:#fff4ce; color:#6b4e00; font-size:12px; padding:4px 12px; display:none; }
+  #cola { display:none; align-items:center; gap:8px; padding:6px 12px; background:#e8f0fe; color:#1a3d7a; font-size:14px; border-bottom:1px solid #b9cdf5; flex-wrap:wrap; }
+  #cola.show { display:flex; }
+  #cola .grow { flex:1; }
+  #setup { position:fixed; inset:0; background:var(--bg); z-index:2700; display:none; align-items:center; justify-content:center; padding:16px; }
+  #setup.show { display:flex; }
+  #setup .box { background:#fff; border:1px solid var(--line); border-radius:12px; padding:20px; max-width:420px; width:100%; }
+  /* map controls & labels */
+  .ctl { background:#fff; border-radius:6px; box-shadow:0 1px 4px rgba(0,0,0,.3); overflow:hidden; display:flex; }
+  .ctl button { font:600 13px system-ui,sans-serif; border:0; background:#fff; color:#333; padding:7px 10px; cursor:pointer; }
+  .ctl button + button { border-left:1px solid #ddd; }
+  .ctl button.on { background:var(--accent); color:#fff; }
+  .ctl-loc button { width:34px; height:34px; padding:0; display:flex; align-items:center; justify-content:center; }
+  .ctl-loc button.on { background:#fff; color:#1a73e8; }
+  .ctl-loc svg { width:20px; height:20px; }
+  .lbl-b { background:transparent; border:0; box-shadow:none; padding:0; font-weight:700; font-size:12px; color:#111; text-shadow:0 0 2px #fff,0 0 2px #fff,0 0 2px #fff; }
+  .lbl-b::before { display:none; }
+  .lbl-t span { display:block; transform:translate(-50%,-50%); font:700 30px/1 system-ui,sans-serif; color:#e0408f; opacity:.9; text-shadow:0 0 3px #fff,0 0 3px #fff; white-space:nowrap; cursor:pointer; }
+  .lbl-p span { display:flex; align-items:center; justify-content:center; width:24px; height:24px; transform:translate(-50%,-50%); border-radius:50%; background:#1d2330; color:#fff; font:700 13px system-ui,sans-serif; border:2px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,.4); }
+  .handle span { display:block; width:16px; height:16px; transform:translate(-50%,-50%); border-radius:50%; background:#e0408f; border:2px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,.5); }
+  .handle.center span { background:#1f4fbf; width:22px; height:22px; }
+  .far .lbl-b { display:none; }
+  .far .lbl-t span { font-size:20px; }
+  .guide-img { position:absolute; left:0; top:0; transform-origin:0 0; max-width:none !important; max-height:none !important; pointer-events:none; }
+  .leaflet-popup-content { font-size:14px; }
+  .hist { margin:6px 0 0; padding:0; list-style:none; font-size:13px; }
+  .hist li { padding:3px 0; border-top:1px solid #eee; }
+  body.adding #map, body.adding #map .leaflet-interactive { cursor:crosshair !important; }
+  .list-item.click { cursor:pointer; }
+  .list-item.click:hover { background:#f6f8fc; }
+  .sal-h { font-size:18px; font-weight:700; margin:4px 0 2px; }
+  .sal-d { margin:3px 0; }
+  #share { position:fixed; inset:0; background:rgba(20,24,33,.75); display:none; align-items:center; justify-content:center; z-index:2600; padding:12px; }
+  #share.show { display:flex; }
+  #share .box { background:#fff; border-radius:12px; max-width:520px; width:100%; max-height:100%; overflow:auto; padding:12px; }
+  #share img { width:100%; border-radius:8px; border:1px solid var(--line); display:block; }
+  #share textarea { width:100%; font:13px/1.35 system-ui,sans-serif; margin-top:8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Territorios · La Villa</h1>
+  <a id="openfull" href="" target="_blank" rel="noopener" title="Abrir en una pestaña aparte">Abrir aparte ↗</a>
+  <nav id="tabs">
+    <button data-tab="mapa" class="on">Mapa</button>
+    <button data-tab="informe">Informe</button>
+    <button data-tab="planificar">Planificar</button>
+    <button data-tab="editar">Editar</button>
+  </nav>
+</header>
+<div id="demo">Modo de prueba: los datos se guardan solo en este navegador (PIN de prueba: 1234).</div>
+<div id="pending"></div>
+<div id="cola"></div>
+<main>
+  <div id="map"></div>
+  <aside id="panel"></aside>
+</main>
+<div id="saving"><div class="box"><div class="spin"></div><span id="saving-msg">Guardando…</span></div></div>
+<div id="toast"></div>
+<div id="share"><div class="box"></div></div>
+<div id="setup"><div class="box">
+  <h2>Territorios · La Villa</h2>
+  <p>Para usar la app, escanea con la cámara del celular el <b>código QR</b> que te dio el encargado del territorio.</p>
+  <label>O pega aquí el enlace que te pasaron</label><input type="text" id="setup-link" placeholder="https://westc.github.io/predi-de-la-congre/?api=…">
+  <div class="actions"><button class="b primary" id="setup-go">Conectar</button></div>
+</div></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.17.0/dist/leaflet-geoman.min.js"></script>
+<script src="manzanas.js"></script>
+<script>
+// ---------- settings ----------
+const VERSION = '6 · 27/10/2026'; // shown at the bottom of Editar; bump when changing this file
+const PALETTE = ['#fff27a','#f7a8c8','#f9b26b','#ffd6b3','#b9dd8f','#80e0e8','#bba0ec','#a9c8f0','#d0d0d0','#f3df5a','#eaa3f2','#a3dcbc'];
+const PLAZA = [-17.794426, -63.134013];
+const RANGOS_DEFAULT = { verde: 30, amarillo: 90 }; // days; editable in Planificar (saved in Config)
+// Rough placement of the paper map over the streets: top-left, top-right, bottom-left corners.
+const GUIA_DEFAULT = [[-17.79104, -63.14001], [-17.79005, -63.12651], [-17.80399, -63.13899]];
+const ESTADOS = { completo: 'Completo', parcial: 'Parcial', no: 'No se hizo' };
+const TABLE_NAMES = ['Bloques', 'Territorios', 'Puntos', 'Salidas', 'Informes', 'Config'];
+
+// ---------- storage helpers ----------
+const store = {
+  get(k, s) { try { return (s || localStorage).getItem(k); } catch (e) { return null; } },
+  set(k, v, s) { try { (s || localStorage).setItem(k, v); } catch (e) {} },
+};
+const ss = (() => { try { return sessionStorage; } catch (e) { return null; } })();
+const emptyDB = () => Object.fromEntries(TABLE_NAMES.map(t => [t, []]));
+
+// ---------- backend ----------
+// The Sheet's Apps Script web app (apps-script/Code.gs → doPost). DEMO uses a fake one kept in this browser.
+const API_URL = 'https://script.google.com/macros/s/' + API_ID + '/exec';
+const KEY = DEMO ? 'demo' : API_ID; // per-Sheet keys for the offline copies below
+const Mock = (() => {
+  let mem = null;
+  const load = () => {
+    if (!mem) { try { mem = JSON.parse(store.get('territorios-demo')); } catch (e) {} }
+    mem = mem || emptyDB();
+    TABLE_NAMES.forEach(t => { mem[t] = mem[t] || []; });
+    return mem;
+  };
+  const persist = () => store.set('territorios-demo', JSON.stringify(mem));
+  const put = (t, rows) => rows.forEach(r => {
+    const row = Object.fromEntries(Object.entries(r).map(([k, v]) => [k, v == null ? '' : String(v)]));
+    const i = load()[t].findIndex(x => x.id === row.id);
+    if (i >= 0) mem[t][i] = row; else mem[t].push(row);
+  });
+  const del = (t, ids) => { load()[t] = mem[t].filter(r => ids.indexOf(r.id) < 0); };
+  return {
+    getAll() { return JSON.parse(JSON.stringify(load())); },
+    checkPin(p) { return p === '1234'; },
+    save(t, rows, p) {
+      if (t !== 'Informes' && p !== '1234') throw new Error('PIN incorrecto');
+      put(t, rows); persist(); return this.getAll();
+    },
+    remove(t, ids, p) {
+      if (p !== '1234') throw new Error('PIN incorrecto');
+      del(t, ids); persist(); return this.getAll();
+    },
+    commit(ch, p) {
+      if (p !== '1234') throw new Error('PIN incorrecto');
+      Object.keys(ch.save || {}).forEach(t => put(t, ch.save[t]));
+      Object.keys(ch.remove || {}).forEach(t => del(t, ch.remove[t]));
+      persist(); return this.getAll();
+    },
+  };
+})();
+
+/** Calls a Code.gs function. Errors from a missing connection have e.offline = true. */
+async function api(fn, ...args) {
+  if (DEMO) { await new Promise(r => setTimeout(r, 400)); return Mock[fn](...args); }
+  let res, out = null;
+  try {
+    // A plain-text body keeps this a "simple" request: Apps Script can't answer a CORS preflight.
+    res = await fetch(API_URL, { method: 'POST', body: JSON.stringify({ fn, args }) });
+  } catch (e) {
+    // The browser can't tell "no signal" from "Google didn't answer" (wrong link, not published for everyone).
+    throw Object.assign(new Error(navigator.onLine === false ? 'Sin conexión. Inténtalo cuando tengas señal.'
+      : 'No se pudo conectar con la hoja. Revisa la señal; si sigue pasando, pide el código QR de nuevo.'), { offline: true });
+  }
+  try { out = await res.json(); } catch (e) {}
+  if (!out) throw new Error('La hoja no respondió. ¿La aplicación web está publicada para “Cualquier persona”?');
+  if (!out.ok) throw new Error(out.error);
+  return out.data;
+}
+async function busy(promise, msg) {
+  $('#saving-msg').textContent = msg || 'Guardando…';
+  document.body.classList.add('busy');
+  try { return await promise; }
+  catch (e) { toast((e && e.message) || String(e)); throw e; }
+  finally { document.body.classList.remove('busy'); }
+}
+async function saveRows(table, rows, msg) { setDB(await busy(api('save', table, rows, pin), msg)); }
+async function removeRows(table, ids) { setDB(await busy(api('remove', table, ids, pin), 'Borrando…')); }
+
+// ---------- state ----------
+// SERVER is what the Sheet has; PEND holds map edits not yet sent. DB = SERVER with PEND applied.
+let SERVER = emptyDB(), PEND = { save: {}, remove: {} }, DB = emptyDB();
+let BL = [], BYID = {}, LAST = {}, TCOLOR = {}, CONFIG = {};
+let tab = 'mapa', colorBy = 'territorio', editSub = 'bloques';
+let pin = store.get('territorios-pin', ss) || '';
+let plan = newPlan();
+let infFecha = ymd(new Date()), infForm = {};
+let editSel = null, lastSaved = null, addingPunto = false, shapeLayer = null;
+let verSalida = START_SALIDA; // salida shown in Mapa (also from a shared link)
+let guide = null, guideAdjust = false, guideHandles = [];
+
+function newPlan() {
+  const d = new Date(); d.setDate(d.getDate() + 1);
+  return { id: '', fecha: ymd(d), hora: store.get('territorios-hora') || '', punto: '', conductor: '', notas: '', bloques: [], notasB: {} };
+}
+
+// The last data from the Sheet is kept in this browser, so the app opens at once and works without signal.
+function setDB(data) { SERVER = data; store.set('predi-datos-' + KEY, JSON.stringify(data)); rebuild(); }
+
+// Informes sent without signal wait here and go out by themselves when there is a connection.
+function cola() { return safeJSON(store.get('predi-cola-' + KEY), null) || []; }
+function setCola(rows) { store.set('predi-cola-' + KEY, JSON.stringify(rows)); }
+let flushing = false;
+async function flushCola(manual) {
+  const rows = cola();
+  if (!rows.length || flushing) return;
+  flushing = true;
+  try {
+    const data = await api('save', 'Informes', rows, pin);
+    const sent = new Set(rows.map(r => r.id));
+    setCola(cola().filter(r => !sent.has(r.id)));
+    setDB(data);
+    toast(rows.length === 1 ? 'Se envió el informe que esperaba señal.' : 'Se enviaron ' + rows.length + ' informes que esperaban señal.');
+  } catch (e) {
+    if (manual || !e.offline) toast(e.message);
+  } finally {
+    flushing = false;
+  }
+}
+window.addEventListener('online', () => flushCola());
+setInterval(() => flushCola(), 60000);
+
+function rebuild() {
+  DB = {};
+  TABLE_NAMES.forEach(t => {
+    const rm = PEND.remove[t] || [], sv = PEND.save[t] || {};
+    DB[t] = (SERVER[t] || []).filter(r => rm.indexOf(r.id) < 0 && !sv[r.id]).concat(Object.values(sv));
+  });
+  const waiting = cola().filter(r => !DB.Informes.some(x => x.id === r.id));
+  DB.Informes = DB.Informes.concat(waiting);
+  BL = DB.Bloques.map(b => ({ ...b, t: +b.territorio, n: +b.bloque, coords: safeJSON(b.coords, []) }))
+    .sort((a, b) => a.t - b.t || a.n - b.n);
+  BYID = Object.fromEntries(BL.map(b => [b.id, b]));
+  TCOLOR = Object.fromEntries(DB.Territorios.map(t => [t.id, t.color]));
+  CONFIG = Object.fromEntries(DB.Config.map(c => [c.id, c.valor]));
+  LAST = {};
+  sortedInformes().forEach(r => { if (r.estado !== 'no') LAST[r.bloque] = r; });
+  renderAll();
+}
+
+function pendingCount() {
+  let n = 0;
+  Object.values(PEND.save).forEach(rows => { n += Object.keys(rows).length; });
+  Object.values(PEND.remove).forEach(ids => { n += ids.length; });
+  return n;
+}
+function stage(table, row) {
+  (PEND.save[table] = PEND.save[table] || {})[row.id] = row;
+  if (PEND.remove[table]) PEND.remove[table] = PEND.remove[table].filter(id => id !== row.id);
+  rebuild();
+}
+function stageRemove(table, id) {
+  if (PEND.save[table]) delete PEND.save[table][id];
+  if ((SERVER[table] || []).some(r => r.id === id)) (PEND.remove[table] = PEND.remove[table] || []).push(id);
+  rebuild();
+}
+async function commitAll() {
+  const n = pendingCount();
+  const changes = { save: {}, remove: PEND.remove };
+  Object.keys(PEND.save).forEach(t => { changes.save[t] = Object.values(PEND.save[t]); });
+  const data = await busy(api('commit', changes, pin), 'Guardando ' + n + (n === 1 ? ' cambio…' : ' cambios…'));
+  PEND = { save: {}, remove: {} };
+  setDB(data);
+  toast('Cambios guardados.');
+}
+function discardAll() {
+  const n = pendingCount();
+  if (!confirm('¿Descartar ' + n + (n === 1 ? ' cambio' : ' cambios') + ' sin guardar?')) return;
+  endShape();
+  PEND = { save: {}, remove: {} };
+  editSel = null; lastSaved = null;
+  rebuild();
+}
+
+// ---------- utils ----------
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+function safeJSON(s, d) { try { return JSON.parse(s); } catch (e) { return d; } }
+function ymd(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function fmt(s) {
+  if (!s) return '';
+  const [y, m, d] = s.split('-').map(Number);
+  const dias = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+  return dias[new Date(y, m - 1, d).getDay()] + ' ' + String(d).padStart(2, '0') + '/' + String(m).padStart(2, '0') + '/' + y;
+}
+function daysSince(s) { const [y, m, d] = s.split('-').map(Number); return Math.floor((Date.now() - new Date(y, m - 1, d)) / 864e5); }
+function ago(s) { const d = daysSince(s); return d <= 0 ? 'hoy' : d === 1 ? 'ayer' : 'hace ' + d + ' días'; }
+function sortedInformes() { return DB.Informes.slice().sort((a, b) => (a.fecha + a.creado).localeCompare(b.fecha + b.creado)); }
+function tColor(t) { return TCOLOR[t] || PALETTE[(t - 1 + PALETTE.length) % PALETTE.length]; }
+function rangos() {
+  return { verde: +CONFIG.dias_verde || RANGOS_DEFAULT.verde, amarillo: +CONFIG.dias_amarillo || RANGOS_DEFAULT.amarillo };
+}
+function statusColor(id) {
+  const r = LAST[id];
+  if (!r) return '#c4c4c4';
+  if (r.estado === 'parcial') return '#f39c12';
+  const d = daysSince(r.fecha), g = rangos();
+  return d <= g.verde ? '#2ecc71' : d <= g.amarillo ? '#f1c40f' : '#e74c3c';
+}
+function bName(b) { return b ? 'T' + b.t + ' · Manzana ' + b.n : '(manzana borrada)'; }
+function bShort(b) { return 'T' + b.t + '·M' + b.n; }
+function describe(ids) {
+  const by = {};
+  ids.map(id => BYID[id]).filter(Boolean).forEach(b => (by[b.t] = by[b.t] || []).push(b.n));
+  return Object.keys(by).sort((a, b) => a - b).map(t => 'T' + t + ': ' + by[t].sort((a, b) => a - b).join(', ')).join(' · ') || '—';
+}
+function when(s) { return fmt(s.fecha) + (s.hora ? ' · ' + s.hora : ''); }
+const bySalidaTime = (a, b) => (a.fecha + (a.hora || '')).localeCompare(b.fecha + (b.hora || ''));
+function salidaBlocks(s) { return (s.bloques || '').split(',').filter(Boolean); }
+function salidaNotes(s) { return safeJSON(s.notasBloques, {}) || {}; }
+function nextSalidaFor(id) {
+  const hoy = ymd(new Date());
+  return DB.Salidas.filter(s => s.fecha >= hoy && salidaBlocks(s).includes(id)).sort(bySalidaTime)[0];
+}
+function puntoOf(s) { return DB.Puntos.find(p => p.letra === s.punto); }
+function puntoName(letra) {
+  const p = DB.Puntos.find(p => p.letra === letra);
+  return p ? p.letra + ' – ' + p.nombre : letra;
+}
+function informeIcon(r) {
+  if (!r) return '<span class="muted">—</span>';
+  return { completo: '<span class="done">✓</span>', parcial: '<span class="part">◐</span>', no: '<span class="not">✕</span>' }[r.estado] || '';
+}
+function centroid(coords) {
+  const n = coords.length || 1;
+  return [coords.reduce((s, c) => s + c[0], 0) / n, coords.reduce((s, c) => s + c[1], 0) / n];
+}
+let toastTimer;
+function toast(msg, ms) {
+  const el = $('#toast'); el.textContent = msg; el.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), ms || 3200);
+}
+
+// ---------- map ----------
+const map = L.map('map', { zoomControl: true }).setView(PLAZA, 16);
+const BASES = {
+  calles: L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19, crossOrigin: true, attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  }),
+  satelite: L.layerGroup([
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 19, crossOrigin: true, attribution: 'Imágenes © Esri, Maxar, Earthstar Geographics',
+    }),
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, crossOrigin: true }),
+  ]),
+};
+let base = store.get('territorios-base') === 'satelite' ? 'satelite' : 'calles';
+BASES[base].addTo(map);
+
+const BaseControl = L.Control.extend({
+  options: { position: 'topright' },
+  onAdd() {
+    const div = L.DomUtil.create('div', 'ctl');
+    div.innerHTML = '<button data-v="calles">Calles</button><button data-v="satelite">Satélite</button>';
+    L.DomEvent.disableClickPropagation(div);
+    div.addEventListener('click', e => { const b = e.target.closest('button'); if (b) setBase(b.dataset.v); });
+    this._div = div; this.refresh();
+    return div;
+  },
+  refresh() { this._div.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === base)); },
+});
+const baseCtl = new BaseControl().addTo(map);
+function setBase(v) {
+  if (v === base) return;
+  map.removeLayer(BASES[base]); base = v; BASES[base].addTo(map);
+  store.set('territorios-base', v); baseCtl.refresh(); renderMap();
+}
+
+// "Where am I" button: blue dot that follows the phone's GPS.
+let locating = false, firstFix = false, meDot = null, meAcc = null;
+const LocControl = L.Control.extend({
+  options: { position: 'topleft' },
+  onAdd() {
+    const div = L.DomUtil.create('div', 'ctl ctl-loc leaflet-bar');
+    div.innerHTML = '<button title="Mi ubicación"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>';
+    L.DomEvent.disableClickPropagation(div);
+    div.querySelector('button').addEventListener('click', locate);
+    this._btn = div.querySelector('button');
+    return div;
+  },
+});
+const locCtl = new LocControl().addTo(map);
+function locate() {
+  if (!navigator.geolocation) return toast('Este navegador no puede dar la ubicación.');
+  if (locating && meDot) { map.setView(meDot.getLatLng(), Math.max(map.getZoom(), 17)); return; }
+  locating = true; firstFix = true; locCtl._btn.classList.add('on');
+  toast('Buscando tu ubicación…');
+  map.locate({ watch: true, enableHighAccuracy: true, setView: false, timeout: 20000 });
+}
+map.on('locationfound', e => {
+  if (!meDot) {
+    meAcc = L.circle(e.latlng, { radius: e.accuracy, color: '#1a73e8', weight: 1, fillOpacity: 0.12, interactive: false, pmIgnore: true }).addTo(map);
+    meDot = L.circleMarker(e.latlng, { radius: 8, color: '#fff', weight: 3, fillColor: '#1a73e8', fillOpacity: 1, interactive: false, pmIgnore: true }).addTo(map);
+  } else {
+    meDot.setLatLng(e.latlng); meAcc.setLatLng(e.latlng).setRadius(e.accuracy);
+  }
+  if (firstFix) { firstFix = false; map.setView(e.latlng, Math.max(map.getZoom(), 17)); }
+});
+map.on('locationerror', e => {
+  locating = false; locCtl._btn.classList.remove('on'); map.stopLocate();
+  toast(e.code === 1
+    ? 'No se permitió la ubicación. Si el mapa está dentro de otra página (Google Sites), toca “Abrir aparte ↗” arriba e inténtalo allí.'
+    : 'No se pudo obtener la ubicación. Inténtalo de nuevo al aire libre.', 8000);
+});
+
+map.createPane('guia').style.zIndex = 450;
+map.getPane('guia').style.pointerEvents = 'none';
+const gManzanas = L.featureGroup().addTo(map);
+const gBloques = L.featureGroup().addTo(map);
+const gTerr = L.layerGroup().addTo(map);
+const gPuntos = L.layerGroup().addTo(map);
+const gTemp = L.layerGroup().addTo(map);
+map.pm.setLang('es');
+map.pm.setGlobalOptions({ snappable: true, snapDistance: 15, allowSelfIntersection: false });
+const zoomClass = () => document.body.classList.toggle('far', map.getZoom() < 16);
+map.on('zoomend', zoomClass); zoomClass();
+
+function highlightSet() {
+  if (tab === 'informe') return new Set(Object.keys(infForm));
+  if (tab === 'mapa' && shownSalida()) return new Set(salidaBlocks(shownSalida()));
+  if (tab === 'planificar') return new Set(plan.bloques);
+  if (tab === 'editar' && editSel && editSel.kind === 'bloque') return new Set([editSel.id]);
+  return null;
+}
+
+function renderMap() {
+  if (shapeLayer) return; // don't redraw while a shape is being edited
+  gBloques.clearLayers(); gTerr.clearLayers(); gPuntos.clearLayers(); gManzanas.clearLayers(); gTemp.clearLayers();
+  const hi = highlightSet();
+  const sat = base === 'satelite';
+  const unsaved = PEND.save.Bloques || {};
+  const byStatus = colorBy === 'estado' && (tab === 'mapa' || tab === 'planificar');
+  BL.forEach(b => {
+    const sel = hi && hi.has(b.id);
+    const dim = hi && !sel && (tab === 'informe' || tab === 'mapa');
+    const poly = L.polygon(b.coords, {
+      color: sel ? '#c0392b' : unsaved[b.id] ? '#e67e22' : sat ? '#fff' : '#4a4a4a',
+      weight: sel ? 3.5 : unsaved[b.id] ? 2.5 : sat ? 1.5 : 1,
+      dashArray: unsaved[b.id] && !sel ? '6 4' : null,
+      fillColor: byStatus ? statusColor(b.id) : tColor(b.t),
+      fillOpacity: dim ? (sat ? 0.1 : 0.25) : sat ? 0.4 : 0.7,
+    });
+    poly.bindTooltip(String(b.n), { permanent: true, direction: 'center', className: 'lbl-b' });
+    poly.on('click', e => onBlockClick(b, e));
+    poly._bid = b.id;
+    gBloques.addLayer(poly);
+  });
+  const terr = {};
+  BL.forEach(b => (terr[b.t] = terr[b.t] || []).push(centroid(b.coords)));
+  Object.keys(terr).forEach(t => {
+    const m = L.marker(centroid(terr[t]), {
+      icon: L.divIcon({ className: 'lbl-t', html: '<span>' + t + '</span>', iconSize: [0, 0] }),
+      keyboard: false, pmIgnore: true,
+    });
+    m.on('click', e => addingPunto ? placePunto(e.latlng) : onTerritoryClick(+t));
+    gTerr.addLayer(m);
+  });
+  DB.Puntos.forEach(p => {
+    const m = L.marker([+p.lat, +p.lng], {
+      icon: L.divIcon({ className: 'lbl-p', html: '<span>' + esc(p.letra) + '</span>', iconSize: [0, 0] }),
+      draggable: tab === 'editar' && !!pin && editSub === 'puntos', pmIgnore: true,
+    });
+    m.bindTooltip(esc(p.nombre), { direction: 'top', offset: [0, -12] });
+    m.on('click', () => { if (tab === 'editar' && pin) { editSub = 'puntos'; editSel = { kind: 'punto', id: p.id }; renderAll(); } });
+    m.on('dragend', () => { const ll = m.getLatLng(); stage('Puntos', { ...p, lat: ll.lat.toFixed(6), lng: ll.lng.toFixed(6) }); });
+    gPuntos.addLayer(m);
+  });
+  if (tab === 'editar' && editSel && editSel.kind === 'punto' && !editSel.id) {
+    gTemp.addLayer(L.marker([+editSel.lat, +editSel.lng], { icon: L.divIcon({ className: 'lbl-p', html: '<span style="background:#c0392b">?</span>', iconSize: [0, 0] }), pmIgnore: true, interactive: false }));
+  }
+  if (tab === 'editar' && pin && editSub === 'bloques') {
+    (window.MANZANAS || []).filter(c => !BYID[c.id]).forEach(c => {
+      const sel = editSel && editSel.id === c.id;
+      const poly = L.polygon(sel ? editSel.coords : c.coords, { color: sel ? '#c0392b' : sat ? '#fff' : '#777', weight: sel ? 3.5 : 1, dashArray: sel ? null : '4 3', fillColor: '#999', fillOpacity: sel ? 0.45 : 0.18 });
+      poly.on('click', () => selectForEdit({ kind: 'manzana', id: c.id, coords: c.coords }));
+      poly._bid = c.id;
+      gManzanas.addLayer(poly);
+    });
+    if (editSel && editSel.kind === 'nuevo') {
+      const poly = L.polygon(editSel.coords, { color: '#c0392b', weight: 3.5, fillOpacity: 0.3 });
+      poly._bid = 'nuevo';
+      gTemp.addLayer(poly);
+    }
+  }
+}
+
+function onBlockClick(b, e) {
+  if (addingPunto) return placePunto(e.latlng);
+  if (tab === 'mapa') {
+    const hist = DB.Informes.filter(r => r.bloque === b.id).sort((a, c) => (c.fecha + c.creado).localeCompare(a.fecha + a.creado)).slice(0, 6);
+    const last = LAST[b.id], next = nextSalidaFor(b.id);
+    const nextNote = next && salidaNotes(next)[b.id];
+    L.popup().setLatLng(e.latlng).setContent(
+      '<b>' + esc(bName(b)) + '</b>' + (b.notas ? '<div class="muted">' + esc(b.notas) + '</div>' : '') +
+      '<div>' + (last ? 'Último: ' + esc(ESTADOS[last.estado]) + (last.porcentaje ? ' ' + esc(last.porcentaje) + '%' : '') + ' — ' + fmt(last.fecha) + ' (' + ago(last.fecha) + ')' : 'Sin informes todavía') + '</div>' +
+      (next ? '<div>Asignada: ' + when(next) + '</div>' + (nextNote ? '<div class="pin-note">📌 ' + esc(nextNote) + '</div>' : '') : '') +
+      (hist.length ? '<ul class="hist">' + hist.map(r => '<li>' + informeIcon(r) + ' ' + fmt(r.fecha) + (r.porcentaje ? ' · ' + esc(r.porcentaje) + '%' : '') + (r.nota ? ' · ' + esc(r.nota) : '') + (r.quien ? ' <span class="muted">(' + esc(r.quien) + ')</span>' : '') + '</li>').join('') + '</ul>' : '')
+    ).openOn(map);
+  } else if (tab === 'informe') {
+    if (!infForm[b.id]) infForm[b.id] = { salida: '', estado: '', porcentaje: '', nota: '' };
+    renderAll();
+    const row = document.querySelector('[data-row="' + b.id + '"]');
+    if (row) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  } else if (tab === 'planificar') {
+    if (!pin) return;
+    const i = plan.bloques.indexOf(b.id);
+    if (i >= 0) plan.bloques.splice(i, 1); else plan.bloques.push(b.id);
+    renderAll();
+  } else if (tab === 'editar' && pin) {
+    editSub = 'bloques'; selectForEdit({ kind: 'bloque', id: b.id });
+  }
+}
+
+// ---------- shape editing (shapeLayer = the polygon whose corners are being dragged) ----------
+function selectForEdit(sel) {
+  if (shapeLayer && editSel && editSel.id === sel.id) return; // tapping the shape being edited
+  keepShape();
+  editSel = sel;
+  renderAll();
+}
+function startShape() {
+  const id = editSel.kind === 'nuevo' ? 'nuevo' : editSel.id;
+  shapeLayer = [gBloques, gManzanas, gTemp].flatMap(g => g.getLayers()).find(l => l._bid === id);
+  if (!shapeLayer) return;
+  shapeLayer.pm.enable({ snappable: true });
+  toast('Arrastra los vértices. Toca “Terminar forma” al acabar.');
+}
+/** Stops editing and returns the new corners (or null if nothing was being edited). */
+function endShape() {
+  if (!shapeLayer) return null;
+  const coords = shapeLayer.getLatLngs()[0].map(ll => [+ll.lat.toFixed(6), +ll.lng.toFixed(6)]);
+  shapeLayer.pm.disable(); shapeLayer = null;
+  return coords;
+}
+/** Stops editing and keeps the new shape: staged for a saved manzana, held in editSel otherwise. */
+function keepShape() {
+  const coords = endShape();
+  if (!coords) return;
+  if (editSel.kind === 'bloque') stage('Bloques', { ...DB.Bloques.find(x => x.id === editSel.id), coords: JSON.stringify(coords) });
+  else editSel.coords = coords;
+}
+
+function toggleTerritory(t) {
+  const ids = BL.filter(b => b.t === t).map(b => b.id);
+  const all = ids.every(id => plan.bloques.includes(id));
+  plan.bloques = all ? plan.bloques.filter(id => !ids.includes(id)) : plan.bloques.concat(ids.filter(id => !plan.bloques.includes(id)));
+  renderAll();
+}
+function zoomTerritory(t) {
+  map.fitBounds(L.latLngBounds(BL.filter(b => b.t === t).flatMap(b => b.coords)), { padding: [30, 30] });
+}
+function onTerritoryClick(t) {
+  if (tab === 'planificar' && pin) toggleTerritory(t); else zoomTerritory(t);
+}
+
+// While adding a punto, a tap anywhere (also on a manzana or a territory number) places it.
+function placePunto(ll) {
+  addingPunto = false;
+  editSel = { kind: 'punto', id: '', lat: ll.lat.toFixed(6), lng: ll.lng.toFixed(6) };
+  renderAll();
+}
+map.on('click', e => { if (addingPunto) placePunto(e.latlng); });
+
+map.on('pm:create', e => {
+  const coords = e.layer.getLatLngs()[0].map(ll => [+ll.lat.toFixed(6), +ll.lng.toFixed(6)]);
+  map.removeLayer(e.layer);
+  editSel = { kind: 'nuevo', id: '', coords };
+  renderAll();
+});
+
+// ---------- guide image (the paper map, laid over the streets) ----------
+const GuideImage = L.Layer.extend({
+  initialize(url, corners) { this._url = url; this._c = corners.map(c => L.latLng(c)); },
+  onAdd(m) {
+    this._img = L.DomUtil.create('img', 'guide-img', m.getPane('guia'));
+    this._img.onload = () => this._update();
+    this._img.src = this._url;
+    this._img.style.opacity = this._op == null ? 0.5 : this._op;
+    m.on('zoom viewreset zoomend', this._update, this);
+    this._update();
+  },
+  onRemove(m) { this._img.remove(); m.off('zoom viewreset zoomend', this._update, this); },
+  corners() { return this._c.map(c => [+c.lat.toFixed(6), +c.lng.toFixed(6)]); },
+  setCorners(c) { this._c = c.map(x => L.latLng(x)); this._update(); },
+  setOpacity(o) { this._op = o; if (this._img) this._img.style.opacity = o; },
+  _update() {
+    if (!this._map || !this._img || !this._img.naturalWidth) return;
+    const [p0, p1, p2] = this._c.map(c => this._map.latLngToLayerPoint(c));
+    const w = this._img.naturalWidth, h = this._img.naturalHeight;
+    this._img.style.transform = 'matrix(' + [(p1.x - p0.x) / w, (p1.y - p0.y) / w, (p2.x - p0.x) / h, (p2.y - p0.y) / h, p0.x, p0.y].join(',') + ')';
+  },
+});
+
+function loadGuide(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    if (guide) map.removeLayer(guide);
+    guide = new GuideImage(reader.result, safeJSON(CONFIG.guia, null) || GUIA_DEFAULT).addTo(map);
+    renderAll();
+  };
+  reader.readAsDataURL(file);
+}
+
+function setGuideAdjust(on) {
+  guideAdjust = on;
+  guideHandles.forEach(h => map.removeLayer(h));
+  guideHandles = [];
+  if (!on || !guide) return;
+  const icon = cls => L.divIcon({ className: 'handle ' + cls, html: '<span></span>', iconSize: [0, 0] });
+  const c = guide.corners();
+  const mid = () => { const k = guide.corners(); return [(k[1][0] + k[2][0]) / 2, (k[1][1] + k[2][1]) / 2]; };
+  c.forEach((pt, i) => {
+    const h = L.marker(pt, { draggable: true, icon: icon('corner'), pmIgnore: true }).addTo(map);
+    h.on('drag', () => { const k = guide.corners(); const ll = h.getLatLng(); k[i] = [ll.lat, ll.lng]; guide.setCorners(k); center.setLatLng(mid()); });
+    guideHandles.push(h);
+  });
+  const center = L.marker(mid(), { draggable: true, icon: icon('center'), pmIgnore: true }).addTo(map);
+  let start;
+  center.on('dragstart', () => { start = { ll: center.getLatLng(), k: guide.corners() }; });
+  center.on('drag', () => {
+    const ll = center.getLatLng(), dl = ll.lat - start.ll.lat, dg = ll.lng - start.ll.lng;
+    const k = start.k.map(p => [p[0] + dl, p[1] + dg]);
+    guide.setCorners(k);
+    guideHandles.slice(0, 3).forEach((h, i) => h.setLatLng(k[i]));
+  });
+  guideHandles.push(center);
+}
+
+// ---------- panels ----------
+const panel = $('#panel');
+
+function renderAll() {
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+  const showDraw = tab === 'editar' && pin && editSub === 'bloques';
+  if (showDraw && !map.pm.controlsVisible()) {
+    map.pm.addControls({ position: 'topleft', drawMarker: false, drawCircleMarker: false, drawPolyline: false, drawRectangle: false,
+      drawCircle: false, drawText: false, editMode: false, dragMode: false, cutPolygon: false, removalMode: false, rotateMode: false });
+  } else if (!showDraw && map.pm.controlsVisible()) {
+    map.pm.removeControls(); map.pm.disableDraw();
+  }
+  if (tab !== 'editar' && guideAdjust) setGuideAdjust(false);
+  if (tab === 'informe') fillInforme();
+  document.body.classList.toggle('adding', addingPunto);
+  renderPending();
+  renderCola();
+  renderMap();
+  const needsPin = (tab === 'planificar' || tab === 'editar') && !pin;
+  panel.innerHTML = needsPin ? pinPanel() : { mapa: mapaPanel, informe: informePanel, planificar: planPanel, editar: editPanel }[tab]();
+}
+
+function renderPending() {
+  const n = pendingCount(), el = $('#pending');
+  el.classList.toggle('show', n > 0);
+  if (n) el.innerHTML = '<span class="grow">● ' + n + (n === 1 ? ' cambio sin guardar' : ' cambios sin guardar') + '</span>' +
+    '<button class="b small" data-act="discard">Descartar</button><button class="b small primary" data-act="commit">Guardar todo</button>';
+}
+
+function renderCola() {
+  const n = cola().length, el = $('#cola');
+  el.classList.toggle('show', n > 0);
+  if (n) el.innerHTML = '<span class="grow">⏳ ' + n + (n === 1 ? ' informe espera' : ' informes esperan') + ' señal para enviarse</span>' +
+    '<button class="b small" data-act="flush">Reintentar</button>';
+}
+
+function pinPanel() {
+  return '<h2>' + (tab === 'editar' ? 'Editar mapa' : 'Planificar') + '</h2>' +
+    '<p class="muted">Esta parte es solo para los hermanos encargados del territorio.</p>' +
+    '<label>PIN</label><input type="password" id="pin" inputmode="numeric" autocomplete="off">' +
+    '<div class="actions"><button class="b primary" data-act="pin">Entrar</button></div>';
+}
+
+function colorControls() {
+  const g = rangos();
+  return '<label>Colorear por</label><div class="seg">' +
+    '<button data-act="color" data-v="territorio" class="' + (colorBy === 'territorio' ? 'on' : '') + '">Territorio</button>' +
+    '<button data-act="color" data-v="estado" class="' + (colorBy === 'estado' ? 'on' : '') + '">Último trabajo</button></div>' +
+    (colorBy === 'estado' ? '<div class="legend">' +
+      '<span><i class="sw" style="background:#2ecc71"></i>Hasta ' + g.verde + ' días</span>' +
+      '<span><i class="sw" style="background:#f1c40f"></i>' + g.verde + '–' + g.amarillo + ' días</span>' +
+      '<span><i class="sw" style="background:#e74c3c"></i>Más de ' + g.amarillo + ' días</span>' +
+      '<span><i class="sw" style="background:#f39c12"></i>Quedó parcial</span>' +
+      '<span><i class="sw" style="background:#c4c4c4"></i>Nunca</span></div>' : '');
+}
+
+function salidaSummary(s) {
+  const notes = salidaNotes(s);
+  return '<div>' + esc(describe(salidaBlocks(s))) + '</div>' +
+    Object.keys(notes).filter(id => BYID[id] && notes[id]).map(id => '<div class="pin-note">📌 ' + esc(bShort(BYID[id])) + ': ' + esc(notes[id]) + '</div>').join('');
+}
+
+// "Install the app": Android/desktop Chrome offer a prompt; on iPhone it's Share → Add to Home Screen.
+let installEvt = null;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; if (tab === 'mapa') renderAll(); });
+function installHint() {
+  if (matchMedia('(display-mode: standalone)').matches || navigator.standalone) return '';
+  if (installEvt) return '<div class="actions"><button class="b" data-act="install">📲 Instalar la app</button></div>';
+  if (/iPhone|iPad|iPod/.test(navigator.userAgent)) return '<p class="muted">📲 Para instalarla en el iPhone: botón Compartir → “Agregar a inicio”.</p>';
+  return '';
+}
+
+function shownSalida() { return verSalida && DB.Salidas.find(s => s.id === verSalida); }
+function salidaDest(s) {
+  const p = puntoOf(s);
+  if (p) return [+p.lat, +p.lng];
+  const bs = salidaBlocks(s).map(id => BYID[id]).filter(Boolean);
+  return bs.length ? centroid(bs.map(b => centroid(b.coords))) : null;
+}
+function directionsUrl(ll) { return 'https://www.google.com/maps/dir/?api=1&destination=' + ll[0].toFixed(6) + ',' + ll[1].toFixed(6); }
+function salidaLink(s) { return DEMO ? '' : location.origin + location.pathname + '?api=' + API_ID + '&salida=' + encodeURIComponent(s.id); }
+function fitSalida(s) {
+  const pts = salidaBlocks(s).map(id => BYID[id]).filter(Boolean).flatMap(b => b.coords);
+  const p = puntoOf(s);
+  if (p) pts.push([+p.lat, +p.lng]);
+  if (pts.length) map.fitBounds(L.latLngBounds(pts), { padding: [40, 40], maxZoom: 18 });
+}
+
+function salidaPanel(s) {
+  const dest = salidaDest(s);
+  return '<button class="b small" data-act="verback">← Todas las salidas</button>' +
+    '<div class="sal-h">' + esc(when(s)) + '</div>' +
+    (s.punto ? '<div class="sal-d">📍 Punto de salida: <b>' + esc(puntoName(s.punto)) + '</b></div>' : '<div class="sal-d muted">Sin punto de salida.</div>') +
+    (s.conductor ? '<div class="sal-d">Conductor: <b>' + esc(s.conductor) + '</b></div>' : '') +
+    (s.notas ? '<div class="sal-d">' + esc(s.notas) + '</div>' : '') +
+    '<label>Manzanas</label>' + salidaSummary(s) +
+    '<div class="actions">' + (dest ? '<a class="b primary" href="' + directionsUrl(dest) + '" target="_blank" rel="noopener">Cómo llegar</a>' : '') +
+    '<button class="b" data-act="share">Compartir</button>' +
+    '<button class="b" data-act="goinf" data-v="' + s.fecha + '">Informar</button></div>' +
+    '<p class="muted">“Cómo llegar” abre Google Maps con el camino ' + (s.punto ? 'hasta el punto de salida' : 'hasta las manzanas') + '.</p>';
+}
+
+function mapaPanel() {
+  const s = shownSalida();
+  if (s) return salidaPanel(s);
+  const hoy = ymd(new Date()), g = rangos();
+  const prox = DB.Salidas.filter(s => s.fecha >= hoy).sort(bySalidaTime).slice(0, 8);
+  const viejos = BL.filter(b => !LAST[b.id] || daysSince(LAST[b.id].fecha) > g.amarillo).length;
+  const parciales = BL.filter(b => LAST[b.id] && LAST[b.id].estado === 'parcial').length;
+  return '<h2>Mapa del territorio</h2>' +
+    (BL.length ? '' : '<p>Todavía no hay manzanas. Entra en <b>Editar</b> para crearlas.</p>') +
+    colorControls() +
+    (BL.length ? '<p class="muted">' + BL.length + ' manzanas · ' + new Set(BL.map(b => b.t)).size + ' territorios · ' +
+      viejos + ' sin trabajar hace más de ' + g.amarillo + ' días · ' + parciales + ' parciales</p>' : '') +
+    '<p class="muted">Toca una manzana para ver su historial, o un número grande para acercarte a ese territorio. El botón ◎ muestra dónde estás.</p>' +
+    installHint() +
+    '<h3>Próximas salidas</h3>' +
+    (prox.length ? '<p class="muted">Toca una salida para ver dónde es, cómo llegar y compartirla.</p>' +
+      prox.map(s => '<div class="list-item click" data-act="ver" data-id="' + s.id + '"><div><b>' + esc(when(s)) + '</b>' + (s.punto ? ' · ' + esc(puntoName(s.punto)) : '') +
+      salidaSummary(s) + (s.conductor ? '<div class="muted">Conductor: ' + esc(s.conductor) + '</div>' : '') +
+      '</div><button class="b small" data-act="goinf" data-v="' + s.fecha + '">Informar</button></div>').join('')
+      : '<p class="muted">No hay salidas planificadas.</p>');
+}
+
+function fillInforme() {
+  DB.Salidas.filter(s => s.fecha === infFecha).forEach(s => salidaBlocks(s).forEach(id => {
+    if (!infForm[id] && BYID[id]) infForm[id] = { salida: s.id, estado: '', porcentaje: '', nota: '' };
+  }));
+}
+
+function informePanel() {
+  const salidas = DB.Salidas.filter(s => s.fecha === infFecha).sort(bySalidaTime);
+  const row = id => {
+    const f = infForm[id], b = BYID[id];
+    const s = f.salida && salidas.find(x => x.id === f.salida);
+    const asignada = s && salidaNotes(s)[id];
+    const prev = DB.Informes.filter(r => r.bloque === id && r.fecha === infFecha);
+    return '<div class="row" data-row="' + id + '"><div class="row-t"><span>' + esc(bName(b)) + '</span>' +
+      (f.salida ? '' : '<button class="b small" data-act="infdrop" data-id="' + id + '">Quitar</button>') + '</div>' +
+      (asignada ? '<div class="pin-note">📌 ' + esc(asignada) + '</div>' : '') +
+      (prev.length ? '<div class="muted">Ya informado: ' + prev.map(r => informeIcon(r) + ' ' + esc(ESTADOS[r.estado]) + (r.porcentaje ? ' ' + esc(r.porcentaje) + '%' : '') + (r.quien ? ' (' + esc(r.quien) + ')' : '')).join(', ') + '</div>' : '') +
+      '<div class="seg">' + Object.keys(ESTADOS).map(k => '<button data-act="est" data-id="' + id + '" data-v="' + k + '" class="' + (f.estado === k ? 'on' : '') + '">' + ESTADOS[k] + '</button>').join('') + '</div>' +
+      (f.estado === 'parcial' ? ' <div class="seg" style="margin-top:6px">' + ['25', '50', '75'].map(p => '<button data-act="pct" data-id="' + id + '" data-v="' + p + '" class="' + (f.porcentaje === p ? 'on' : '') + '">~' + p + '%</button>').join('') + '</div>' : '') +
+      (f.estado ? '<input type="text" class="nota" data-in="nota" data-id="' + id + '" value="' + esc(f.nota) + '" placeholder="' + (f.estado === 'parcial' ? '¿Qué quedó pendiente? (ej.: falta lado de la calle 5)' : 'Nota (opcional)') + '">' : '') +
+      '</div>';
+  };
+  const extras = Object.keys(infForm).filter(id => !infForm[id].salida && BYID[id]);
+  return '<h2>Informe de predicación</h2>' +
+    '<label>Fecha</label><input type="date" data-in="inffecha" value="' + infFecha + '">' +
+    (salidas.length ? '' : '<p class="muted">No hay salidas planificadas para esta fecha. Puedes tocar manzanas en el mapa para informarlas igual.</p>') +
+    salidas.map(s => '<div class="card"><div class="card-h">' + (s.hora ? esc(s.hora) + ' · ' : '') + (s.punto ? esc(puntoName(s.punto)) : 'Salida') + '</div>' +
+      (s.conductor ? '<div class="muted">Conductor: ' + esc(s.conductor) + '</div>' : '') +
+      (s.notas ? '<div class="muted">' + esc(s.notas) + '</div>' : '') +
+      salidaBlocks(s).filter(id => infForm[id] && infForm[id].salida === s.id).map(row).join('') + '</div>').join('') +
+    (extras.length ? '<div class="card"><div class="card-h">Otras manzanas</div>' + extras.map(row).join('') + '</div>' : '') +
+    (Object.keys(infForm).length ? '<p class="muted">Tocar una manzana en el mapa la agrega aquí.</p>' +
+      '<button class="b small" data-act="allno">Marcar todo “No se hizo”</button>' +
+      '<label>Tu nombre</label><input type="text" data-in="quien" value="' + esc(store.get('territorios-quien') || '') + '" placeholder="Nombre de quien informa">' +
+      '<div class="actions"><button class="b primary" data-act="enviar">Enviar informe</button></div>' : '');
+}
+
+function territoryRows() {
+  const by = {};
+  BL.forEach(b => (by[b.t] = by[b.t] || []).push(b));
+  return Object.keys(by).map(t => {
+    const bs = by[t];
+    const days = bs.map(b => LAST[b.id] ? daysSince(LAST[b.id].fecha) : Infinity);
+    return { t: +t, n: bs.length, oldest: Math.max(...days), parciales: bs.filter(b => LAST[b.id] && LAST[b.id].estado === 'parcial').length, ids: bs.map(b => b.id) };
+  }).sort((a, b) => b.oldest - a.oldest || a.t - b.t);
+}
+
+function planPanel() {
+  const hoy = ymd(new Date()), g = rangos();
+  const prox = DB.Salidas.filter(s => s.fecha >= hoy).sort(bySalidaTime);
+  const recientes = DB.Salidas.filter(s => s.fecha < hoy && daysSince(s.fecha) <= 21).sort((a, b) => bySalidaTime(b, a));
+  const status = s => salidaBlocks(s).map(id => {
+    const rs = DB.Informes.filter(r => r.salida === s.id && r.bloque === id);
+    return BYID[id] ? informeIcon(rs[rs.length - 1]) + ' ' + bShort(BYID[id]) : '';
+  }).join(' &nbsp;');
+  const item = s => '<div class="list-item"><div><b>' + esc(when(s)) + '</b>' + (s.punto ? ' · ' + esc(puntoName(s.punto)) : '') +
+    (s.fecha < hoy ? '<div>' + status(s) + '</div>' : salidaSummary(s)) +
+    (s.conductor ? '<div class="muted">Conductor: ' + esc(s.conductor) + '</div>' : '') + '</div>' +
+    '<div style="white-space:nowrap">' + (s.fecha >= hoy ? '<button class="b small" data-act="ver" data-id="' + s.id + '">Ver</button> ' : '') + '<button class="b small" data-act="planedit" data-id="' + s.id + '">Editar</button> ' +
+    '<button class="b small danger" data-act="plandel" data-id="' + s.id + '">Borrar</button></div></div>';
+  const sel = plan.bloques.map(id => BYID[id]).filter(Boolean).sort((a, b) => a.t - b.t || a.n - b.n);
+  const tdays = d => 'más atrasada: ' + (d === Infinity ? 'nunca' : d <= 0 ? 'hoy' : 'hace ' + d + ' días');
+  const tcolor = d => d === Infinity ? '#c4c4c4' : d <= g.verde ? '#2ecc71' : d <= g.amarillo ? '#f1c40f' : '#e74c3c';
+  return '<h2>' + (plan.id ? 'Editando salida' : 'Planificar salida') + '</h2>' +
+    '<p class="muted">Toca manzanas en el mapa para elegirlas. Toca el número grande de un territorio para elegirlo entero.</p>' +
+    '<div class="grid2"><div><label>Fecha</label><input type="date" data-in="p-fecha" value="' + plan.fecha + '"></div>' +
+    '<div><label>Hora</label><input type="time" data-in="p-hora" value="' + esc(plan.hora) + '"></div></div>' +
+    '<div><label>Punto de salida</label><select data-in="p-punto"><option value="">—</option>' +
+      DB.Puntos.slice().sort((a, b) => a.letra.localeCompare(b.letra)).map(p => '<option value="' + esc(p.letra) + '"' + (plan.punto === p.letra ? ' selected' : '') + '>' + esc(p.letra + ' – ' + p.nombre) + '</option>').join('') + '</select></div>' +
+    '<label>Conductor</label><input type="text" data-in="p-conductor" value="' + esc(plan.conductor) + '">' +
+    '<label>Notas de la salida</label><input type="text" data-in="p-notas" value="' + esc(plan.notas) + '">' +
+    '<label>Manzanas (' + sel.length + ') — puedes poner una nota a cada una</label>' +
+    (sel.length ? sel.map(b => '<div class="sel-row"><b>' + bShort(b) + '</b>' +
+      '<input type="text" data-in="p-nb" data-id="' + b.id + '" value="' + esc(plan.notasB[b.id] || '') + '" placeholder="Ej.: solo Av. General Campero">' +
+      '<button class="b small" data-act="pdrop" data-id="' + b.id + '" title="Quitar">✕</button></div>').join('') : '<p class="muted">Ninguna todavía.</p>') +
+    '<div class="actions"><button class="b primary" data-act="plansave">' + (plan.id ? 'Guardar cambios' : 'Guardar salida') + '</button>' +
+    '<button class="b" data-act="planreset">' + (plan.id ? 'Cancelar' : 'Limpiar') + '</button></div>' +
+    '<h3>Próximas salidas</h3>' + (prox.length ? prox.map(item).join('') : '<p class="muted">Ninguna.</p>') +
+    '<h3>Territorios por tiempo sin trabajar</h3>' + colorControls() +
+    '<details><summary>Cambiar los rangos de días</summary><div class="rangos">Verde hasta <input type="number" min="1" id="r-verde" value="' + g.verde + '"> días · ' +
+      'amarillo hasta <input type="number" min="1" id="r-amarillo" value="' + g.amarillo + '"> días · después rojo ' +
+      '<button class="b small" data-act="rangos">Guardar</button></div></details>' +
+    '<p class="muted">Según la manzana que lleva más tiempo sin trabajar. Toca “Elegir” para agregar el territorio entero.</p>' +
+    territoryRows().map(r => '<div class="terr-row' + (r.ids.every(id => plan.bloques.includes(id)) ? ' on' : '') + '"><i class="sw" style="background:' + tcolor(r.oldest) + '"></i>' +
+      '<span class="grow"><b>T' + r.t + '</b> · ' + r.n + ' manz. · ' + tdays(r.oldest) + (r.parciales ? ' · ' + r.parciales + ' parcial' + (r.parciales > 1 ? 'es' : '') : '') + '</span>' +
+      '<button class="b small" data-act="tzoom" data-v="' + r.t + '">Ver</button><button class="b small" data-act="tpick" data-v="' + r.t + '">Elegir</button></div>').join('') +
+    '<h3>Últimas 3 semanas</h3>' + (recientes.length ? '<p class="muted">✓ completo · ◐ parcial · ✕ no se hizo · — sin informe</p>' + recientes.map(item).join('') : '<p class="muted">Ninguna.</p>');
+}
+
+function editPanel() {
+  const sub = '<div class="seg" style="margin-bottom:10px">' + [['bloques', 'Manzanas'], ['puntos', 'Puntos de salida'], ['guia', 'Imagen guía']]
+    .map(([k, l]) => '<button data-act="sub" data-v="' + k + '" class="' + (editSub === k ? 'on' : '') + '">' + l + '</button>').join('') + '</div>';
+  const intro = '<p class="muted">Los cambios se juntan arriba en <b>“cambios sin guardar”</b>. Al terminar, toca <b>Guardar todo</b> (o <b>Descartar</b> para deshacerlos).</p>';
+  let body = '';
+  if (editSub === 'bloques') {
+    const free = (window.MANZANAS || []).filter(c => !BYID[c.id]).length;
+    if (editSel && editSel.kind !== 'punto') {
+      const b = editSel.kind === 'bloque' ? BYID[editSel.id] : null;
+      const sug = editSel.draft || (b ? { t: b.t, n: b.n, notas: b.notas } : lastSaved ? { t: lastSaved.t, n: lastSaved.n + 1, notas: '' } : { t: '', n: '', notas: '' });
+      body = '<div class="card"><div class="card-h">' + (b ? esc(bName(b)) : editSel.kind === 'nuevo' ? 'Forma nueva' : 'Manzana sin asignar') + '</div>' +
+        '<div class="grid2"><div><label>Territorio</label><input type="number" id="e-t" min="1" value="' + esc(sug.t) + '"></div>' +
+        '<div><label>Manzana</label><input type="number" id="e-n" min="1" value="' + esc(sug.n) + '"></div></div>' +
+        '<label>Notas</label><input type="text" id="e-notas" value="' + esc(sug.notas) + '" placeholder="Ej.: perros bravos en la esquina">' +
+        '<div class="actions"><button class="b primary" data-act="bsave">Listo</button>' +
+        '<button class="b' + (shapeLayer ? ' primary' : '') + '" data-act="bshape">' + (shapeLayer ? 'Terminar forma' : 'Cambiar forma') + '</button>' +
+        (b ? '<button class="b danger" data-act="bdel">Quitar</button>' : '') +
+        '<button class="b" data-act="bcancel">Cancelar</button></div></div>';
+    } else {
+      body = '<p>Toca una <b>manzana gris</b> para darle territorio y número. La siguiente sugiere el número que sigue.</p>' +
+        '<p class="muted">¿Falta una manzana o hay que dividirla? Usa el botón de dibujar (⬠) a la izquierda del mapa. Toca una manzana ya hecha para cambiarla.</p>' +
+        (lastSaved ? '<p class="done">Listo T' + lastSaved.t + ' · Manzana ' + lastSaved.n + '.</p>' : '');
+    }
+    const ts = [...new Set(BL.map(b => b.t))].sort((a, b) => a - b);
+    body += '<p class="muted">' + BL.length + ' manzanas hechas · ' + free + ' grises sin asignar</p>' +
+      (ts.length ? '<h3>Colores de territorios</h3><div style="display:flex;flex-wrap:wrap;gap:6px 10px">' + ts.map(t => '<label style="margin:0;display:flex;align-items:center;gap:4px;color:var(--fg)">T' + t +
+        ' <input type="color" data-in="tcolor" data-t="' + t + '" value="' + tColor(t) + '"></label>').join('') + '</div>' : '');
+  } else if (editSub === 'puntos') {
+    const p = editSel && editSel.kind === 'punto' ? (DB.Puntos.find(x => x.id === editSel.id) || editSel) : null;
+    body = (p ? '<div class="card"><div class="card-h">' + (p.id ? 'Punto ' + esc(p.letra) : 'Punto nuevo') + '</div>' +
+        '<div class="grid2"><div><label>Letra</label><input type="text" id="pt-letra" maxlength="3" value="' + esc(p.letra || '') + '"></div>' +
+        '<div><label>Nombre</label><input type="text" id="pt-nombre" value="' + esc(p.nombre || '') + '" placeholder="Salón del Reino"></div></div>' +
+        '<div class="actions"><button class="b primary" data-act="ptsave">Listo</button>' + (p.id ? '<button class="b danger" data-act="ptdel">Quitar</button>' : '') +
+        '<button class="b" data-act="ptcancel">Cancelar</button></div></div>'
+      : '<div class="actions"><button class="b primary" data-act="ptadd">' + (addingPunto ? 'Toca el mapa…' : '+ Agregar punto') + '</button></div>' +
+        '<p class="muted">Arrastra un punto en el mapa para moverlo. Tócalo para cambiar su nombre.</p>') +
+      DB.Puntos.slice().sort((a, b) => a.letra.localeCompare(b.letra)).map(x => '<div class="list-item"><div><b>' + esc(x.letra) + '</b> – ' + esc(x.nombre) + '</div></div>').join('');
+  } else {
+    body = '<p>Pon la imagen del mapa de papel encima de las calles para ayudarte a asignar las manzanas. La imagen no se sube: solo se ve en este equipo.</p>' +
+      '<label>Imagen</label><input type="file" accept="image/*" data-in="guiafile">' +
+      (guide ? '<label>Transparencia</label><input type="range" min="0" max="1" step="0.05" value="' + (guide._op == null ? 0.5 : guide._op) + '" data-in="guiaop" style="width:100%">' +
+        '<div class="actions"><button class="b' + (guideAdjust ? ' primary' : '') + '" data-act="guiaadj">' + (guideAdjust ? 'Listo' : 'Ajustar posición') + '</button>' +
+        '<button class="b" data-act="guiasave">Recordar posición</button><button class="b danger" data-act="guiaoff">Quitar imagen</button></div>' +
+        '<p class="muted">Al ajustar: arrastra el punto azul para mover la imagen y los rosados (esquinas) para girarla o estirarla, hasta que la plaza y las avenidas coincidan.</p>' : '');
+  }
+  return '<h2>Editar mapa</h2>' + sub + intro + body + '<p class="muted" style="margin-top:24px">Versión ' + VERSION + '</p>';
+}
+
+// ---------- sharing a salida (picture + text) ----------
+let shareData = null; // { blob, text, name }
+
+function salidaText(s) {
+  const p = puntoOf(s), dest = salidaDest(s), notes = salidaNotes(s), link = salidaLink(s);
+  return ['Salida de predicación — ' + when(s),
+    s.punto ? 'Punto de salida: ' + puntoName(s.punto) : '',
+    dest ? 'Cómo llegar: ' + directionsUrl(dest) : '',
+    s.conductor ? 'Conductor: ' + s.conductor : '',
+    'Manzanas: ' + describe(salidaBlocks(s)),
+    ...Object.keys(notes).filter(id => BYID[id] && notes[id]).map(id => '📌 ' + bShort(BYID[id]) + ': ' + notes[id]),
+    s.notas || '',
+    link ? 'Ver en el mapa: ' + link : '',
+  ].filter(Boolean).join('\n');
+}
+
+const TILE_URL = {
+  calles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+  satelite: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}'],
+};
+function loadImg(url) {
+  return new Promise(res => {
+    const img = new Image();
+    const t = setTimeout(() => res(null), 8000);
+    img.crossOrigin = 'anonymous'; // tiles without CORS are skipped, so the canvas can still be exported
+    img.onload = () => { clearTimeout(t); res(img); };
+    img.onerror = () => { clearTimeout(t); res(null); };
+    img.src = url;
+  });
+}
+function wrapLines(cx, text, width) {
+  const out = [];
+  String(text).split('\n').forEach(par => {
+    let line = '';
+    par.split(' ').forEach(w => {
+      const t = line ? line + ' ' + w : w;
+      if (cx.measureText(t).width > width && line) { out.push(line); line = w; } else line = t;
+    });
+    out.push(line);
+  });
+  return out;
+}
+
+/** Draws the salida as a PNG: details on top, a map of its manzanas and meeting point below. */
+async function salidaImage(s) {
+  const W = 1080, PAD = 48, MAPH = 860;
+  const cv = document.createElement('canvas'), cx = cv.getContext('2d');
+  const notes = salidaNotes(s);
+  const rows = [
+    ['bold 50px system-ui,sans-serif', '#1d2330', when(s)],
+    s.punto && ['600 36px system-ui,sans-serif', '#1d2330', '📍 ' + puntoName(s.punto)],
+    s.conductor && ['32px system-ui,sans-serif', '#444', 'Conductor: ' + s.conductor],
+    ['32px system-ui,sans-serif', '#444', 'Manzanas: ' + describe(salidaBlocks(s))],
+    ...Object.keys(notes).filter(id => BYID[id] && notes[id]).map(id => ['30px system-ui,sans-serif', '#6b4e00', '📌 ' + bShort(BYID[id]) + ': ' + notes[id]]),
+    s.notas && ['italic 30px system-ui,sans-serif', '#444', s.notas],
+  ].filter(Boolean);
+  const laid = rows.map(([font, color, text]) => {
+    cx.font = font;
+    return { font, color, lines: wrapLines(cx, text, W - 2 * PAD), h: parseInt(font.match(/(\d+)px/)[1], 10) * 1.3 };
+  });
+  const headH = PAD + laid.reduce((t, r) => t + r.lines.length * r.h + 6, 0) + PAD / 2;
+
+  const bs = salidaBlocks(s).map(id => BYID[id]).filter(Boolean);
+  const p = puntoOf(s);
+  const pts = bs.flatMap(b => b.coords).concat(p ? [[+p.lat, +p.lng]] : []);
+  const mapH = pts.length ? MAPH : 0;
+  cv.width = W; cv.height = headH + mapH + 50;
+  cx.fillStyle = '#fff'; cx.fillRect(0, 0, W, cv.height);
+  let y = PAD;
+  laid.forEach(r => {
+    cx.font = r.font; cx.fillStyle = r.color; cx.textBaseline = 'top';
+    r.lines.forEach(l => { cx.fillText(l, PAD, y); y += r.h; });
+    y += 6;
+  });
+
+  if (mapH) {
+    const bounds = L.latLngBounds(pts);
+    let z = 18;
+    for (; z > 12; z--) {
+      const a = map.project(bounds.getNorthWest(), z), b = map.project(bounds.getSouthEast(), z);
+      if (b.x - a.x <= W - 160 && b.y - a.y <= mapH - 160) break;
+    }
+    const c = map.project(bounds.getCenter(), z);
+    const ox = c.x - W / 2, oy = c.y - mapH / 2;
+    const xy = ll => { const q = map.project(L.latLng(ll), z); return [q.x - ox, headH + q.y - oy]; };
+    const jobs = [];
+    TILE_URL[base].forEach((tpl, layer) => {
+      for (let tx = Math.floor(ox / 256); tx <= Math.floor((ox + W) / 256); tx++)
+        for (let ty = Math.floor(oy / 256); ty <= Math.floor((oy + mapH) / 256); ty++)
+          jobs.push(loadImg(tpl.replace('{z}', z).replace('{x}', tx).replace('{y}', ty)).then(img => ({ img, tx, ty, layer })));
+    });
+    const tiles = await Promise.all(jobs);
+    cx.save();
+    cx.beginPath(); cx.rect(0, headH, W, mapH); cx.clip();
+    cx.fillStyle = '#e8e8e8'; cx.fillRect(0, headH, W, mapH);
+    tiles.sort((a, b) => a.layer - b.layer).forEach(t => { if (t.img) cx.drawImage(t.img, t.tx * 256 - ox, headH + t.ty * 256 - oy); });
+    const sat = base === 'satelite', mine = new Set(bs.map(b => b.id));
+    const poly = (coords, fill, stroke, lw, alpha) => {
+      cx.beginPath();
+      coords.forEach((ll, i) => { const [px, py] = xy(ll); i ? cx.lineTo(px, py) : cx.moveTo(px, py); });
+      cx.closePath();
+      if (fill) { cx.globalAlpha = alpha; cx.fillStyle = fill; cx.fill(); cx.globalAlpha = 1; }
+      cx.lineWidth = lw; cx.strokeStyle = stroke; cx.stroke();
+    };
+    BL.filter(b => !mine.has(b.id)).forEach(b => poly(b.coords, sat ? null : '#ffffff', sat ? 'rgba(255,255,255,.6)' : 'rgba(0,0,0,.35)', 1.5, 0.35));
+    bs.forEach(b => poly(b.coords, tColor(b.t), '#c0392b', 5, sat ? 0.55 : 0.75));
+    const label = (text, px, py, font, fill) => {
+      cx.font = font; cx.textAlign = 'center'; cx.textBaseline = 'middle';
+      cx.lineWidth = 6; cx.strokeStyle = '#fff'; cx.strokeText(text, px, py);
+      cx.fillStyle = fill; cx.fillText(text, px, py);
+    };
+    bs.forEach(b => { const [px, py] = xy(centroid(b.coords)); label(bShort(b), px, py, 'bold 26px system-ui,sans-serif', '#111'); });
+    if (p) {
+      const [px, py] = xy([+p.lat, +p.lng]);
+      cx.beginPath(); cx.arc(px, py, 26, 0, 2 * Math.PI);
+      cx.fillStyle = '#1d2330'; cx.fill(); cx.lineWidth = 5; cx.strokeStyle = '#fff'; cx.stroke();
+      cx.font = 'bold 26px system-ui,sans-serif'; cx.fillStyle = '#fff'; cx.textAlign = 'center'; cx.textBaseline = 'middle';
+      cx.fillText(p.letra, px, py + 1);
+      label(p.nombre, px, py - 46, 'bold 26px system-ui,sans-serif', '#1d2330');
+    }
+    cx.restore();
+  }
+  cx.textAlign = 'left'; cx.textBaseline = 'middle'; cx.font = '22px system-ui,sans-serif'; cx.fillStyle = '#6b7280';
+  cx.fillText('Territorios · La Villa', PAD, cv.height - 25);
+  cx.textAlign = 'right';
+  cx.fillText(mapH ? (base === 'satelite' ? '© Esri, Maxar' : '© OpenStreetMap') : '', W - PAD, cv.height - 25);
+  return new Promise(res => cv.toBlob(res, 'image/png'));
+}
+
+async function openShare(s) {
+  const blob = await salidaImage(s);
+  const text = salidaText(s);
+  shareData = { blob, text, name: 'salida-' + s.fecha + '.png' };
+  const url = URL.createObjectURL(blob);
+  const canFiles = !!(navigator.canShare && navigator.canShare({ files: [new File([blob], shareData.name, { type: 'image/png' })] }));
+  $('#share .box').innerHTML = '<div class="row-t"><span>Compartir salida</span><button class="b small" data-act="shareclose">✕</button></div>' +
+    '<img src="' + url + '" alt="Salida ' + esc(when(s)) + '">' +
+    '<p class="muted">En el celular también puedes mantener presionada la imagen para guardarla o compartirla.</p>' +
+    '<div class="actions">' + (canFiles || navigator.share ? '<button class="b primary" data-act="sharenative">Compartir…</button>' : '') +
+    '<a class="b" href="https://wa.me/?text=' + encodeURIComponent(text) + '" target="_blank" rel="noopener">WhatsApp (texto)</a>' +
+    '<a class="b" href="' + url + '" download="' + shareData.name + '">Descargar imagen</a></div>' +
+    '<label>Texto</label><textarea rows="7" readonly onclick="this.select()">' + esc(text) + '</textarea>';
+  $('#share').classList.add('show');
+}
+
+function shareNative() {
+  const file = new File([shareData.blob], shareData.name, { type: 'image/png' });
+  const data = navigator.canShare && navigator.canShare({ files: [file] }) ? { files: [file], text: shareData.text } : { text: shareData.text };
+  navigator.share(data).catch(e => {
+    if (e && e.name === 'AbortError') return; // the person closed the share sheet
+    toast('Aquí no se puede compartir directo. Mantén presionada la imagen, usa “Descargar”, o abre la página aparte ↗.', 7000);
+  });
+}
+
+// ---------- panel events ----------
+const ACT = {
+  async pin() {
+    const v = $('#pin').value.trim();
+    if (await busy(api('checkPin', v), 'Verificando…')) { pin = v; store.set('territorios-pin', v, ss); renderAll(); }
+    else toast('PIN incorrecto');
+  },
+  commit() { return commitAll(); },
+  flush() { return flushCola(true); },
+  async install() { const ev = installEvt; installEvt = null; ev.prompt(); await ev.userChoice; renderAll(); },
+  discard() { discardAll(); },
+  color(el) { colorBy = el.dataset.v; renderAll(); },
+  ver(el) {
+    const s = DB.Salidas.find(x => x.id === el.dataset.id);
+    if (!s) return;
+    tab = 'mapa'; verSalida = s.id; map.closePopup(); renderAll(); fitSalida(s); panel.scrollTop = 0;
+  },
+  verback() { verSalida = ''; renderAll(); },
+  async share() { await busy(openShare(shownSalida()), 'Preparando imagen…'); },
+  sharenative() { shareNative(); },
+  shareclose() { $('#share').classList.remove('show'); },
+  goinf(el) { tab = 'informe'; infFecha = el.dataset.v; infForm = {}; renderAll(); },
+  est(el) {
+    const f = infForm[el.dataset.id];
+    f.estado = f.estado === el.dataset.v ? '' : el.dataset.v;
+    if (f.estado !== 'parcial') f.porcentaje = '';
+    renderAll();
+  },
+  pct(el) { const f = infForm[el.dataset.id]; f.porcentaje = f.porcentaje === el.dataset.v ? '' : el.dataset.v; renderAll(); },
+  infdrop(el) { delete infForm[el.dataset.id]; renderAll(); },
+  allno() { Object.values(infForm).forEach(f => { f.estado = 'no'; f.porcentaje = ''; }); renderAll(); },
+  async enviar() {
+    const quien = (store.get('territorios-quien') || '').trim();
+    const creado = new Date().toISOString();
+    const rows = Object.keys(infForm).filter(id => infForm[id].estado).map(id => ({
+      id: uid(), fecha: infFecha, salida: infForm[id].salida, bloque: id, estado: infForm[id].estado,
+      porcentaje: infForm[id].porcentaje, nota: infForm[id].nota.trim(), quien, creado,
+    }));
+    if (!rows.length) return toast('Marca al menos una manzana.');
+    if (!quien) return toast('Escribe tu nombre.');
+    try {
+      await saveRows('Informes', rows, 'Enviando informe…');
+      toast('¡Gracias! Informe enviado.');
+    } catch (e) {
+      if (!e.offline) return;
+      setCola(cola().concat(rows));
+      rebuild();
+      toast('Sin señal: el informe quedó guardado en este celular y se enviará solo cuando haya conexión.', 7000);
+    }
+    infForm = {};
+    renderAll();
+  },
+  pdrop(el) { plan.bloques = plan.bloques.filter(id => id !== el.dataset.id); renderAll(); },
+  tpick(el) { toggleTerritory(+el.dataset.v); },
+  tzoom(el) { zoomTerritory(+el.dataset.v); },
+  async rangos() {
+    const verde = +$('#r-verde').value, amarillo = +$('#r-amarillo').value;
+    if (!(verde > 0 && amarillo > verde)) return toast('El amarillo tiene que ser mayor que el verde.');
+    await saveRows('Config', [{ id: 'dias_verde', valor: verde }, { id: 'dias_amarillo', valor: amarillo }]);
+    toast('Rangos guardados.');
+  },
+  async plansave() {
+    if (!plan.fecha) return toast('Elige la fecha.');
+    if (!plan.bloques.length) return toast('Elige al menos una manzana en el mapa.');
+    const notas = {};
+    plan.bloques.forEach(id => { const n = (plan.notasB[id] || '').trim(); if (n) notas[id] = n; });
+    if (plan.hora) store.set('territorios-hora', plan.hora);
+    await saveRows('Salidas', [{ id: plan.id || uid(), fecha: plan.fecha, hora: plan.hora, bloques: plan.bloques.join(','), punto: plan.punto,
+      conductor: plan.conductor.trim(), notas: plan.notas.trim(), notasBloques: Object.keys(notas).length ? JSON.stringify(notas) : '' }]);
+    toast('Salida guardada: ' + when(plan));
+    plan = newPlan();
+    renderAll();
+  },
+  planreset() { plan = newPlan(); renderAll(); },
+  planedit(el) {
+    const s = DB.Salidas.find(x => x.id === el.dataset.id);
+    plan = { id: s.id, fecha: s.fecha, hora: s.hora || '', punto: s.punto, conductor: s.conductor, notas: s.notas, bloques: salidaBlocks(s).filter(id => BYID[id]), notasB: salidaNotes(s) };
+    renderAll(); panel.scrollTop = 0;
+  },
+  async plandel(el) {
+    const s = DB.Salidas.find(x => x.id === el.dataset.id);
+    if (confirm('¿Borrar la salida del ' + when(s) + '? (Los informes ya enviados se conservan.)')) await removeRows('Salidas', [s.id]);
+  },
+  sub(el) { editSub = el.dataset.v; editSel = null; addingPunto = false; renderAll(); },
+  bsave() {
+    const t = +$('#e-t').value, n = +$('#e-n').value;
+    if (!(t > 0 && n > 0)) return toast('Pon el número de territorio y de manzana.');
+    const dup = BL.find(b => b.t === t && b.n === n && b.id !== editSel.id);
+    if (dup && !confirm('Ya existe T' + t + ' · Manzana ' + n + '. ¿Seguir de todos modos?')) return;
+    const id = editSel.id || uid();
+    const coords = endShape() || (editSel.kind === 'bloque' ? BYID[id].coords : editSel.coords);
+    const notas = $('#e-notas').value.trim();
+    editSel = null; lastSaved = { t, n };
+    stage('Bloques', { id, territorio: t, bloque: n, coords: JSON.stringify(coords), notas });
+  },
+  bshape() {
+    editSel.draft = { t: $('#e-t').value, n: $('#e-n').value, notas: $('#e-notas').value };
+    if (shapeLayer) keepShape(); else startShape();
+    renderAll();
+  },
+  bdel() {
+    const id = editSel.id;
+    endShape();
+    editSel = null;
+    stageRemove('Bloques', id);
+  },
+  bcancel() { endShape(); editSel = null; renderAll(); },
+  ptadd() { addingPunto = true; toast('Toca el mapa donde está el punto de salida.'); renderAll(); },
+  ptsave() {
+    const letra = $('#pt-letra').value.trim().toUpperCase(), nombre = $('#pt-nombre').value.trim();
+    if (!letra || !nombre) return toast('Pon la letra y el nombre.');
+    const old = DB.Puntos.find(x => x.id === editSel.id);
+    const p = old ? { ...old, letra, nombre } : { id: uid(), letra, nombre, lat: editSel.lat, lng: editSel.lng };
+    editSel = null;
+    stage('Puntos', p);
+  },
+  ptdel() { const id = editSel.id; editSel = null; stageRemove('Puntos', id); },
+  ptcancel() { editSel = null; renderAll(); },
+  guiaadj() { setGuideAdjust(!guideAdjust); renderAll(); },
+  guiasave() { stage('Config', { id: 'guia', valor: JSON.stringify(guide.corners()) }); },
+  guiaoff() { setGuideAdjust(false); map.removeLayer(guide); guide = null; renderAll(); },
+};
+
+const INPUT = {
+  inffecha(el) { infFecha = el.value; infForm = {}; renderAll(); },
+  nota(el) { infForm[el.dataset.id].nota = el.value; },
+  quien(el) { store.set('territorios-quien', el.value); },
+  'p-fecha'(el) { plan.fecha = el.value; },
+  'p-hora'(el) { plan.hora = el.value; },
+  'p-punto'(el) { plan.punto = el.value; },
+  'p-conductor'(el) { plan.conductor = el.value; },
+  'p-notas'(el) { plan.notas = el.value; },
+  'p-nb'(el) { plan.notasB[el.dataset.id] = el.value; },
+  tcolor(el) { stage('Territorios', { id: el.dataset.t, color: el.value, notas: '' }); },
+  guiafile(el) { if (el.files[0]) loadGuide(el.files[0]); },
+  guiaop(el) { guide.setOpacity(+el.value); },
+};
+// "change" for controls that re-render or save; "input" for live text so typing never loses focus.
+const ON_CHANGE = ['inffecha', 'tcolor', 'guiafile', 'p-fecha', 'p-hora', 'p-punto'];
+
+function onAct(e) {
+  const el = e.target.closest('[data-act]');
+  if (el && ACT[el.dataset.act]) Promise.resolve(ACT[el.dataset.act](el)).catch(() => {});
+}
+panel.addEventListener('click', onAct);
+$('#pending').addEventListener('click', onAct);
+$('#cola').addEventListener('click', onAct);
+$('#share').addEventListener('click', e => { if (e.target.id === 'share') ACT.shareclose(); else onAct(e); });
+panel.addEventListener('input', e => {
+  const k = e.target.dataset.in;
+  if (k && INPUT[k] && ON_CHANGE.indexOf(k) < 0) INPUT[k](e.target);
+});
+panel.addEventListener('change', e => {
+  const k = e.target.dataset.in;
+  if (k && INPUT[k] && ON_CHANGE.indexOf(k) >= 0) INPUT[k](e.target);
+});
+panel.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'pin') ACT.pin(); });
+$('#tabs').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (shapeLayer) ACT.bcancel();
+  tab = b.dataset.tab; editSel = null; addingPunto = false; verSalida = '';
+  map.closePopup();
+  renderAll();
+});
+window.addEventListener('beforeunload', e => { if (pendingCount()) { e.preventDefault(); e.returnValue = ''; } });
+
+// ---------- start ----------
+function fitStart() {
+  const pts = BL.length ? BL.flatMap(b => b.coords) : (window.MANZANAS || []).flatMap(c => c.coords);
+  map.invalidateSize();
+  if (pts.length) map.fitBounds(L.latLngBounds(pts), { padding: [10, 10] });
+  if (shownSalida()) fitSalida(shownSalida());
+}
+/** Accepts the app link from the QR, the Apps Script /exec URL, or just the id. */
+function connect(text) {
+  const t = text.trim(), m = t.match(/[?&]api=([\w-]+)/) || t.match(/\/s\/([\w-]+)\/exec/) || t.match(/^([\w-]{20,200})$/);
+  if (!m) return toast('Ese enlace no sirve. Pide el código QR al encargado del territorio.');
+  location.href = location.pathname + '?api=' + m[1];
+}
+async function start() {
+  if (window.self !== window.top) { $('#openfull').href = location.href; $('#openfull').style.display = 'inline'; }
+  if (DEMO) $('#demo').style.display = 'block';
+  if (!API_ID && !DEMO) {
+    $('#setup').classList.add('show');
+    $('#setup-go').addEventListener('click', () => connect($('#setup-link').value));
+    return;
+  }
+  const saved = safeJSON(store.get('predi-datos-' + KEY), null);
+  if (saved) { SERVER = saved; rebuild(); fitStart(); }
+  try {
+    const data = await (saved ? api('getAll') : busy(api('getAll'), 'Cargando…'));
+    setDB(data);
+    if (!saved) fitStart();
+  } catch (e) {
+    if (saved) toast(e.offline ? 'Sin conexión: se muestran los últimos datos guardados.' : e.message, 5000);
+  }
+  flushCola();
+}
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+renderAll();
+start();
+</script>
+</body>
+</html>

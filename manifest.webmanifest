@@ -1,0 +1,17 @@
+{
+  "name": "Territorios La Villa",
+  "short_name": "Territorios",
+  "description": "Mapa de territorios, salidas e informes de la congregación La Villa.",
+  "id": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "lang": "es",
+  "background_color": "#f4f5f8",
+  "theme_color": "#1f3d8a",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
