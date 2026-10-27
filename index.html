@@ -24,8 +24,21 @@
   if (id && !q.has('demo')) history.replaceState(null, '', location.pathname + '?api=' + id + (c ? '&c=' + c : ''));
 })();
 </script>
-<link rel="manifest" href="manifest.webmanifest">
+<script>
+// Installing: Chrome, Edge and Android need the manifest; the installed app opens at ./ and finds the saved link above
+// (it shares this browser's storage). iPhone/iPad don't share storage with the installed app, so there the manifest is
+// left out and "Agregar a inicio" keeps the current address, with ?api= and a conductor's &c=.
+(function () {
+  var ua = navigator.userAgent;
+  if (/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) return;
+  var link = document.createElement('link');
+  link.rel = 'manifest';
+  link.href = 'manifest.webmanifest';
+  document.head.appendChild(link);
+})();
+</script>
 <meta name="theme-color" content="#1f3d8a">
+<meta name="mobile-web-app-capable" content="yes">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -177,7 +190,7 @@
 <script src="manzanas.js"></script>
 <script>
 // ---------- settings ----------
-const VERSION = '8 · 27/10/2026'; // shown at the bottom of Editar; bump when changing this file
+const VERSION = '9 · 27/10/2026'; // shown at the bottom of Editar; bump when changing this file
 const PALETTE = ['#fff27a','#f7a8c8','#f9b26b','#ffd6b3','#b9dd8f','#80e0e8','#bba0ec','#a9c8f0','#d0d0d0','#f3df5a','#eaa3f2','#a3dcbc'];
 const PLAZA = [-17.794426, -63.134013];
 const RANGOS_DEFAULT = { verde: 30, amarillo: 90 }; // days; editable in Planificar (saved in Config)
