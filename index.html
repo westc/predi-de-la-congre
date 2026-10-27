@@ -177,7 +177,7 @@
 <script src="manzanas.js"></script>
 <script>
 // ---------- settings ----------
-const VERSION = '7 · 27/10/2026'; // shown at the bottom of Editar; bump when changing this file
+const VERSION = '8 · 27/10/2026'; // shown at the bottom of Editar; bump when changing this file
 const PALETTE = ['#fff27a','#f7a8c8','#f9b26b','#ffd6b3','#b9dd8f','#80e0e8','#bba0ec','#a9c8f0','#d0d0d0','#f3df5a','#eaa3f2','#a3dcbc'];
 const PLAZA = [-17.794426, -63.134013];
 const RANGOS_DEFAULT = { verde: 30, amarillo: 90 }; // days; editable in Planificar (saved in Config)
@@ -842,14 +842,21 @@ function salidaSummary(s) {
     Object.keys(notes).filter(id => BYID[id] && notes[id]).map(id => '<div class="pin-note">📌 ' + esc(bShort(BYID[id])) + ': ' + esc(notes[id]) + '</div>').join('');
 }
 
-// "Install the app": Android/desktop Chrome offer a prompt; on iPhone it's Share → Add to Home Screen.
+// "Install the app": a button when the browser offers its own prompt (it doesn't always, e.g. desktop Chrome
+// often waits until the page has been used a while), otherwise where to find it on this device.
 let installEvt = null;
 window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; if (tab === 'hoy') renderAll(); });
 function installHint() {
   if (matchMedia('(display-mode: standalone)').matches || navigator.standalone) return '';
   if (installEvt) return '<div class="actions"><button class="b" data-act="install">📲 Instalar la app</button></div>';
-  if (/iPhone|iPad|iPod/.test(navigator.userAgent)) return '<p class="muted">📲 Para instalarla en el iPhone: botón Compartir → “Agregar a inicio”.</p>';
-  return '';
+  const ua = navigator.userAgent;
+  const how = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) ? 'en Safari, botón Compartir → “Agregar a inicio”.'
+    : /Android/.test(ua) ? 'menú ⋮ del navegador → “Instalar app” (o “Agregar a la pantalla principal”).'
+    : /Edg\//.test(ua) ? 'menú ⋯ de Edge → Aplicaciones → “Instalar este sitio como aplicación”.'
+    : /Chrome\//.test(ua) ? 'el ícono de instalar al final de la barra de direcciones, o menú ⋮ → Transmitir, guardar y compartir → “Instalar página como app”.'
+    : /Safari\//.test(ua) ? 'en Safari, menú Archivo → “Agregar al Dock”.'
+    : '';
+  return how ? '<p class="muted">📲 Para instalar la app: ' + how + '</p>' : '';
 }
 
 function shownSalida() { return verSalida && DB.Salidas.find(s => s.id === verSalida); }
