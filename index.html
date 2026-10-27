@@ -190,7 +190,7 @@
 <script src="manzanas.js"></script>
 <script>
 // ---------- settings ----------
-const VERSION = '9 · 27/10/2026'; // shown at the bottom of Editar; bump when changing this file
+const VERSION = '10 · 27/10/2026'; // shown at the bottom of Editar; bump when changing this file
 const PALETTE = ['#fff27a','#f7a8c8','#f9b26b','#ffd6b3','#b9dd8f','#80e0e8','#bba0ec','#a9c8f0','#d0d0d0','#f3df5a','#eaa3f2','#a3dcbc'];
 const PLAZA = [-17.794426, -63.134013];
 const RANGOS_DEFAULT = { verde: 30, amarillo: 90 }; // days; editable in Planificar (saved in Config)
@@ -932,6 +932,7 @@ function hoyPanel() {
     (rest.length ? '<h3>Próximos días</h3>' + rest.slice(0, 8).map(x => '<div class="list-item click" data-act="ver" data-id="' + x.id + '"><div><b>' + esc(when(x)) + '</b>' +
       (x.punto ? ' · ' + esc(puntoName(x.punto)) : '') + '<div class="muted">' + esc(describe(salidaBlocks(x))) + '</div></div><span class="muted">›</span></div>').join('') : '') +
     '<p class="muted">Toca una manzana en el mapa para ver cuándo se trabajó. El botón ◎ muestra dónde estás.</p>' +
+    '<div class="actions"><button class="b" data-act="appshare">📤 Compartir la app</button></div>' +
     installHint() + accountFooter();
 }
 
@@ -1107,10 +1108,24 @@ function loadQr() {
   });
   return qrLib;
 }
-async function openConductorShare(c) {
+/** The plain app link for anyone: connected to this Sheet, never with a conductor's key or the PIN. */
+function appLink() { return location.origin + location.pathname + (DEMO ? '?demo' : '?api=' + API_ID); }
+
+function openConductorShare(c) {
   const link = conductorLink(c);
-  const text = 'Hola, ' + c.nombre + '. Este es tu enlace para la app de territorios: con él puedes enviar los informes de predicación. ' +
-    'Es solo para ti, no lo pases a otros.\n' + link;
+  openLinkShare('Enlace de ' + c.nombre, link,
+    'Hola, ' + c.nombre + '. Este es tu enlace para la app de territorios: con él puedes enviar los informes de predicación. ' +
+    'Es solo para ti, no lo pases a otros.\n' + link,
+    'Que lo escanee con la cámara de su celular, o mándaselo:');
+}
+function openAppShare() {
+  const link = appLink();
+  openLinkShare('Compartir la app', link,
+    'App de territorios de la congregación La Villa: dónde es la salida de hoy y qué manzanas se van a trabajar.\n' + link,
+    'Que lo escaneen con la cámara del celular, o mándales el enlace:');
+}
+/** QR code + ways to send a link (share sheet, WhatsApp, copy). */
+async function openLinkShare(title, link, text, hint) {
   let qr = '';
   try {
     const q = (await loadQr())(0, 'M');
@@ -1118,8 +1133,8 @@ async function openConductorShare(c) {
     qr = '<img class="qr" alt="Código QR" src="' + q.createDataURL(8, 8) + '">';
   } catch (e) {}
   shareData = { text };
-  $('#share .box').innerHTML = '<div class="row-t"><span>Enlace de ' + esc(c.nombre) + '</span><button class="b small" data-act="shareclose">✕</button></div>' +
-    qr + '<p class="muted">Que lo escanee con la cámara de su celular, o mándaselo:</p>' +
+  $('#share .box').innerHTML = '<div class="row-t"><span>' + esc(title) + '</span><button class="b small" data-act="shareclose">✕</button></div>' +
+    qr + '<p class="muted">' + esc(hint) + '</p>' +
     '<div class="actions">' + (navigator.share ? '<button class="b primary" data-act="sharetext">Compartir…</button>' : '') +
     '<a class="b" href="https://wa.me/?text=' + encodeURIComponent(text) + '" target="_blank" rel="noopener">WhatsApp</a>' +
     '<button class="b" data-act="copylink">Copiar enlace</button></div>' +
@@ -1399,6 +1414,7 @@ const ACT = {
     const c = DB.Conductores.find(x => x.id === el.dataset.id);
     if (confirm('¿Borrar a ' + c.nombre + '? Su enlace dejará de servir. (Sus informes se conservan.)')) await removeRows('Conductores', [c.id]);
   },
+  appshare() { openAppShare(); },
   sharetext() { navigator.share({ text: shareData.text }).catch(() => {}); },
   async copylink() {
     const el = $('#share-link');
