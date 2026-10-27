@@ -10,8 +10,10 @@
  * Every value is stored as plain text; the web page does the parsing.
  * (The "Bloques" sheet holds the manzanas; the name is kept so existing data keeps working.)
  *
- * Admin actions (editing manzanas, planning) need the PIN stored in
- * Project Settings → Script properties → ADMIN_PIN.
+ * Three kinds of users (see who_):
+ *  - publicador: anyone with the app link; can only look.
+ *  - conductor: opened a personal link made by the admin (Conductores sheet); can also send informes.
+ *  - admin: knows the PIN (Sheet menu → Territorios → Cambiar PIN); can do everything.
  */
 
 // New columns go at the END of a list; setup_() adds them to existing sheets.
@@ -22,27 +24,35 @@ const TABLES = {
   Salidas:     ['id', 'fecha', 'bloques', 'punto', 'conductor', 'notas', 'notasBloques', 'hora'],
   Informes:    ['id', 'fecha', 'salida', 'bloque', 'estado', 'porcentaje', 'nota', 'quien', 'creado'],
   Config:      ['id', 'valor'],
+  Conductores: ['id', 'nombre', 'clave', 'activo', 'creado'], // clave = the secret in the conductor's link
 };
 
-// Tables anyone with the link may add rows to (field reports).
-const PUBLIC_APPEND = ['Informes'];
+// Tables only the admin may read (the rest is visible to anyone with the app link).
+const ADMIN_ONLY = ['Conductores'];
+// After this many wrong PINs, the PIN is refused for 15 minutes.
+const MAX_PIN_FAILS = 10;
 
 // Where the app is published (GitHub Pages).
 const SITE_URL = 'https://westc.github.io/predi-de-la-congre/';
 
 // What the page may call through doPost.
-const API = { getAll, save, remove, commit, checkPin };
+// Each one gets who_() as its first argument.
+const API = { getAll, save, remove, commit };
 
-/** The page's requests: body = JSON {fn, args}. Answers {ok: true, data} or {ok: false, error}. */
+/**
+ * The page's requests: body = JSON {fn, args, auth: {pin, conductor}}.
+ * Answers {ok: true, data, who} or {ok: false, error, who}; who = {role, nombre, aviso}.
+ */
 function doPost(e) {
-  let out;
+  let out, who;
   try {
     setup_();
     const req = JSON.parse(e.postData.contents);
+    who = who_(req.auth);
     if (!Object.prototype.hasOwnProperty.call(API, req.fn)) throw new Error('Función desconocida: ' + req.fn);
-    out = { ok: true, data: API[req.fn].apply(null, req.args || []) };
+    out = { ok: true, data: API[req.fn].apply(null, [who].concat(req.args || [])), who };
   } catch (err) {
-    out = { ok: false, error: (err && err.message) || String(err) };
+    out = { ok: false, error: (err && err.message) || String(err), who };
   }
   return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
 }
@@ -64,8 +74,25 @@ function doGet(e) {
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('Territorios')
     .addItem('Código QR de la app', 'showQr')
+    .addItem('Cambiar PIN de administrador…', 'askPin')
     .addItem('Cambiar el enlace de la aplicación web…', 'askWebAppUrl')
     .addToUi();
+}
+
+function askPin() {
+  const ui = SpreadsheetApp.getUi();
+  const r = ui.prompt('PIN de administrador',
+    'Escribe el PIN nuevo (al menos 4 caracteres). Con él se entra a Planificar y Editar en la app.',
+    ui.ButtonSet.OK_CANCEL);
+  if (r.getSelectedButton() !== ui.Button.OK) return;
+  const pin = r.getResponseText().trim();
+  if (!/^\S{4,}$/.test(pin)) {
+    ui.alert('El PIN tiene que tener al menos 4 caracteres, sin espacios.');
+    return;
+  }
+  PropertiesService.getScriptProperties().setProperty('ADMIN_PIN', pin);
+  CacheService.getScriptCache().remove('pinFails');
+  ui.alert('PIN guardado. Quien ya había entrado con el PIN anterior tendrá que entrar de nuevo.');
 }
 
 /** The web app's deployment id (the part between /s/ and /exec), or ''. */
@@ -115,7 +142,7 @@ function setup() {
   PropertiesService.getScriptProperties().deleteProperty('SCHEMA');
   setup_();
   if (!PropertiesService.getScriptProperties().getProperty('ADMIN_PIN')) {
-    Logger.log('Falta el PIN: agrega ADMIN_PIN en Configuración del proyecto → Propiedades del script.');
+    Logger.log('Falta el PIN: en la hoja, usa el menú Territorios → Cambiar PIN de administrador.');
   } else {
     Logger.log('Listo.');
   }
@@ -161,23 +188,47 @@ function isAdmin_(pin) {
   return !!real && String(pin) === real;
 }
 
-function checkPin(pin) {
-  return isAdmin_(pin);
+/**
+ * Who is asking, from auth = {pin, conductor}.
+ * aviso explains a PIN (pinMal) or conductor link (enlaceMal) that didn't work, so the page can forget it.
+ */
+function who_(auth) {
+  auth = auth || {};
+  const who = { role: 'publicador', nombre: '', aviso: '', pinMal: false, enlaceMal: false };
+  if (auth.pin) {
+    const cache = CacheService.getScriptCache();
+    const fails = +(cache.get('pinFails') || 0);
+    if (fails < MAX_PIN_FAILS && isAdmin_(auth.pin)) return { role: 'admin', nombre: '' };
+    if (fails < MAX_PIN_FAILS) cache.put('pinFails', String(fails + 1), 15 * 60);
+    who.pinMal = true;
+    who.aviso = fails < MAX_PIN_FAILS ? 'PIN incorrecto.' : 'Demasiados intentos con un PIN equivocado. Espera 15 minutos.';
+  }
+  if (auth.conductor) {
+    const c = rows_('Conductores').find(r => r.clave === String(auth.conductor) && r.activo !== 'no');
+    if (c) return Object.assign(who, { role: 'conductor', nombre: c.nombre });
+    who.enlaceMal = true;
+    who.aviso = who.aviso || 'Tu enlace de conductor ya no sirve. Pide uno nuevo al encargado del territorio.';
+  }
+  return who;
 }
 
-function getAll() {
+function rows_(table) {
+  const values = sheet_(table).getDataRange().getDisplayValues();
+  const cols = values.shift() || [];
+  return values
+    .filter(r => r[0] !== '')
+    .map(r => Object.fromEntries(cols.map((c, i) => [c, r[i]])));
+}
+
+function getAll(who) {
   const out = {};
   for (const table in TABLES) {
-    const values = sheet_(table).getDataRange().getDisplayValues();
-    const cols = values.shift() || [];
-    out[table] = values
-      .filter(r => r[0] !== '')
-      .map(r => Object.fromEntries(cols.map((c, i) => [c, r[i]])));
+    if (who.role === 'admin' || ADMIN_ONLY.indexOf(table) < 0) out[table] = rows_(table);
   }
   return out;
 }
 
-function locked_(fn) {
+function locked_(who, fn) {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
@@ -185,7 +236,11 @@ function locked_(fn) {
   } finally {
     lock.releaseLock();
   }
-  return getAll();
+  return getAll(who);
+}
+
+function needAdmin_(who) {
+  if (who.role !== 'admin') throw new Error(who.aviso || 'Solo el administrador puede hacer esto.');
 }
 
 /** Insert or update rows (matched by id). New rows are written in one block. */
@@ -202,7 +257,7 @@ function write_(table, rows, admin) {
     if (n === 0) {
       ids.push(id);
       fresh.push(vals);
-    } else if (admin) { // public users may only add, never overwrite
+    } else if (admin) { // conductores may only add, never overwrite
       sh.getRange(n, 1, 1, header.length).setNumberFormat('@').setValues([vals]);
     }
   });
@@ -222,21 +277,27 @@ function delete_(table, ids) {
   }
 }
 
-function save(table, rows, pin) {
-  const admin = isAdmin_(pin);
-  if (!admin && PUBLIC_APPEND.indexOf(table) < 0) throw new Error('PIN incorrecto');
-  return locked_(() => write_(table, rows, admin));
+function save(who, table, rows) {
+  if (who.role === 'conductor' && table === 'Informes') {
+    rows.forEach(r => { r.quien = who.nombre; }); // the name comes from the link, not from the phone
+    return locked_(who, () => write_(table, rows, false));
+  }
+  if (who.role !== 'admin' && table === 'Informes') {
+    throw new Error(who.aviso || 'Solo los conductores pueden enviar informes. Pide tu enlace al encargado del territorio.');
+  }
+  needAdmin_(who);
+  return locked_(who, () => write_(table, rows, true));
 }
 
-function remove(table, ids, pin) {
-  if (!isAdmin_(pin)) throw new Error('PIN incorrecto');
-  return locked_(() => delete_(table, ids));
+function remove(who, table, ids) {
+  needAdmin_(who);
+  return locked_(who, () => delete_(table, ids));
 }
 
 /** Several saves and deletes in one trip: { save: {Table: [rows]}, remove: {Table: [ids]} }. */
-function commit(changes, pin) {
-  if (!isAdmin_(pin)) throw new Error('PIN incorrecto');
-  return locked_(() => {
+function commit(who, changes) {
+  needAdmin_(who);
+  return locked_(who, () => {
     for (const table in changes.save || {}) write_(table, changes.save[table], true);
     for (const table in changes.remove || {}) delete_(table, changes.remove[table]);
   });

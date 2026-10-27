@@ -6,17 +6,22 @@
 <title>Territorios La Villa</title>
 <script>
 // Which congregation's Sheet this app talks to: ?api=ID from the QR code (the Apps Script deployment id).
-// It is remembered, and kept in the address so "Instalar" / "Agregar a inicio" opens the app already connected.
+// A conductor's personal link also has &c=KEY. Both are remembered, and kept in the address so
+// "Instalar" / "Agregar a inicio" opens the app already connected.
 (function () {
-  var q = new URLSearchParams(location.search), saved = null;
-  var ok = function (v) { return /^[\w-]{20,200}$/.test(v || ''); };
+  var q = new URLSearchParams(location.search);
+  var get = function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } };
+  var set = function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} };
+  var ok = function (v, min) { return new RegExp('^[\\w-]{' + min + ',200}$').test(v || ''); };
   var id = q.get('api');
-  try { saved = localStorage.getItem('predi-api'); } catch (e) {}
-  if (ok(id)) { try { localStorage.setItem('predi-api', id); } catch (e) {} } else id = ok(saved) ? saved : '';
+  if (ok(id, 20)) set('predi-api', id); else id = ok(get('predi-api'), 20) ? get('predi-api') : '';
   window.API_ID = id;
   window.START_SALIDA = q.get('salida') || '';
   window.DEMO = q.has('demo') || (!id && /^(localhost|127\.0\.0\.1)$/.test(location.hostname));
-  if (id && !q.has('demo')) history.replaceState(null, '', location.pathname + '?api=' + id);
+  var key = window.DEMO ? 'demo' : id, c = q.get('c');
+  if (ok(c, 16)) set('predi-c-' + key, c); else c = get('predi-c-' + key) || '';
+  window.CONDUCTOR_KEY = c;
+  if (id && !q.has('demo')) history.replaceState(null, '', location.pathname + '?api=' + id + (c ? '&c=' + c : ''));
 })();
 </script>
 <link rel="manifest" href="manifest.webmanifest">
@@ -130,6 +135,12 @@
   .list-item.click { cursor:pointer; }
   .list-item.click:hover { background:#f6f8fc; }
   .sal-h { font-size:18px; font-weight:700; margin:4px 0 2px; }
+  .sal-card { border:2px solid #c9d4f2; background:#f7f9ff; }
+  .sal-card .sal-h { font-size:20px; }
+  .acct { margin-top:24px; padding-top:10px; border-top:1px solid var(--line); font-size:13px; color:var(--muted); }
+  .acct button.link { background:none; border:0; padding:0; color:var(--accent); font:inherit; cursor:pointer; text-decoration:underline; }
+  .tag { display:inline-block; font-size:11px; padding:1px 6px; border-radius:9px; background:#eee; color:#555; margin-left:4px; font-weight:400; }
+  #share .qr { display:block; width:240px; height:240px; margin:4px auto; image-rendering:pixelated; border:0; }
   .sal-d { margin:3px 0; }
   #share { position:fixed; inset:0; background:rgba(20,24,33,.75); display:none; align-items:center; justify-content:center; z-index:2600; padding:12px; }
   #share.show { display:flex; }
@@ -142,14 +153,9 @@
 <header>
   <h1>Territorios · La Villa</h1>
   <a id="openfull" href="" target="_blank" rel="noopener" title="Abrir en una pestaña aparte">Abrir aparte ↗</a>
-  <nav id="tabs">
-    <button data-tab="mapa" class="on">Mapa</button>
-    <button data-tab="informe">Informe</button>
-    <button data-tab="planificar">Planificar</button>
-    <button data-tab="editar">Editar</button>
-  </nav>
+  <nav id="tabs"></nav>
 </header>
-<div id="demo">Modo de prueba: los datos se guardan solo en este navegador (PIN de prueba: 1234).</div>
+<div id="demo">Modo de prueba: los datos se guardan solo en este navegador (PIN de administrador: 1234).</div>
 <div id="pending"></div>
 <div id="cola"></div>
 <main>
@@ -171,14 +177,14 @@
 <script src="manzanas.js"></script>
 <script>
 // ---------- settings ----------
-const VERSION = '6 · 27/10/2026'; // shown at the bottom of Editar; bump when changing this file
+const VERSION = '7 · 27/10/2026'; // shown at the bottom of Editar; bump when changing this file
 const PALETTE = ['#fff27a','#f7a8c8','#f9b26b','#ffd6b3','#b9dd8f','#80e0e8','#bba0ec','#a9c8f0','#d0d0d0','#f3df5a','#eaa3f2','#a3dcbc'];
 const PLAZA = [-17.794426, -63.134013];
 const RANGOS_DEFAULT = { verde: 30, amarillo: 90 }; // days; editable in Planificar (saved in Config)
 // Rough placement of the paper map over the streets: top-left, top-right, bottom-left corners.
 const GUIA_DEFAULT = [[-17.79104, -63.14001], [-17.79005, -63.12651], [-17.80399, -63.13899]];
 const ESTADOS = { completo: 'Completo', parcial: 'Parcial', no: 'No se hizo' };
-const TABLE_NAMES = ['Bloques', 'Territorios', 'Puntos', 'Salidas', 'Informes', 'Config'];
+const TABLE_NAMES = ['Bloques', 'Territorios', 'Puntos', 'Salidas', 'Informes', 'Config', 'Conductores'];
 
 // ---------- storage helpers ----------
 const store = {
@@ -207,33 +213,64 @@ const Mock = (() => {
     if (i >= 0) mem[t][i] = row; else mem[t].push(row);
   });
   const del = (t, ids) => { load()[t] = mem[t].filter(r => ids.indexOf(r.id) < 0); };
-  return {
-    getAll() { return JSON.parse(JSON.stringify(load())); },
-    checkPin(p) { return p === '1234'; },
-    save(t, rows, p) {
-      if (t !== 'Informes' && p !== '1234') throw new Error('PIN incorrecto');
-      put(t, rows); persist(); return this.getAll();
+  const who = a => {
+    const w = { role: 'publicador', nombre: '', aviso: '', pinMal: false, enlaceMal: false };
+    if (a.pin) {
+      if (a.pin === '1234') return { role: 'admin', nombre: '' };
+      Object.assign(w, { pinMal: true, aviso: 'PIN incorrecto.' });
+    }
+    if (a.conductor) {
+      const c = load().Conductores.find(r => r.clave === a.conductor && r.activo !== 'no');
+      if (c) return Object.assign(w, { role: 'conductor', nombre: c.nombre });
+      Object.assign(w, { enlaceMal: true, aviso: w.aviso || 'Tu enlace de conductor ya no sirve. Pide uno nuevo al encargado del territorio.' });
+    }
+    return w;
+  };
+  const getAll = w => {
+    const d = JSON.parse(JSON.stringify(load()));
+    if (w.role !== 'admin') delete d.Conductores;
+    return d;
+  };
+  const needAdmin = w => { if (w.role !== 'admin') throw new Error(w.aviso || 'Solo el administrador puede hacer esto.'); };
+  const fns = {
+    getAll,
+    save(w, t, rows) {
+      if (w.role === 'conductor' && t === 'Informes') {
+        rows = rows.filter(r => !load()[t].some(x => x.id === r.id)).map(r => ({ ...r, quien: w.nombre }));
+      } else {
+        if (w.role !== 'admin' && t === 'Informes') throw new Error(w.aviso || 'Solo los conductores pueden enviar informes. Pide tu enlace al encargado del territorio.');
+        needAdmin(w);
+      }
+      put(t, rows); persist(); return getAll(w);
     },
-    remove(t, ids, p) {
-      if (p !== '1234') throw new Error('PIN incorrecto');
-      del(t, ids); persist(); return this.getAll();
-    },
-    commit(ch, p) {
-      if (p !== '1234') throw new Error('PIN incorrecto');
+    remove(w, t, ids) { needAdmin(w); del(t, ids); persist(); return getAll(w); },
+    commit(w, ch) {
+      needAdmin(w);
       Object.keys(ch.save || {}).forEach(t => put(t, ch.save[t]));
       Object.keys(ch.remove || {}).forEach(t => del(t, ch.remove[t]));
-      persist(); return this.getAll();
+      persist(); return getAll(w);
+    },
+  };
+  return {
+    call(fn, args, auth) {
+      const w = who(auth);
+      try { return { ok: true, data: fns[fn](w, ...args), who: w }; }
+      catch (e) { return { ok: false, error: e.message, who: w }; }
     },
   };
 })();
 
-/** Calls a Code.gs function. Errors from a missing connection have e.offline = true. */
+/** Calls a Code.gs function as the current user. Errors from a missing connection have e.offline = true. */
 async function api(fn, ...args) {
-  if (DEMO) { await new Promise(r => setTimeout(r, 400)); return Mock[fn](...args); }
+  const auth = { pin, conductor: ckey };
   let res, out = null;
+  if (DEMO) {
+    await new Promise(r => setTimeout(r, 400));
+    return answer(Mock.call(fn, args, auth));
+  }
   try {
     // A plain-text body keeps this a "simple" request: Apps Script can't answer a CORS preflight.
-    res = await fetch(API_URL, { method: 'POST', body: JSON.stringify({ fn, args }) });
+    res = await fetch(API_URL, { method: 'POST', body: JSON.stringify({ fn, args, auth }) });
   } catch (e) {
     // The browser can't tell "no signal" from "Google didn't answer" (wrong link, not published for everyone).
     throw Object.assign(new Error(navigator.onLine === false ? 'Sin conexión. Inténtalo cuando tengas señal.'
@@ -241,6 +278,10 @@ async function api(fn, ...args) {
   }
   try { out = await res.json(); } catch (e) {}
   if (!out) throw new Error('La hoja no respondió. ¿La aplicación web está publicada para “Cualquier persona”?');
+  return answer(out);
+}
+function answer(out) {
+  if (out.who) setWho(out.who);
   if (!out.ok) throw new Error(out.error);
   return out.data;
 }
@@ -251,15 +292,38 @@ async function busy(promise, msg) {
   catch (e) { toast((e && e.message) || String(e)); throw e; }
   finally { document.body.classList.remove('busy'); }
 }
-async function saveRows(table, rows, msg) { setDB(await busy(api('save', table, rows, pin), msg)); }
-async function removeRows(table, ids) { setDB(await busy(api('remove', table, ids, pin), 'Borrando…')); }
+async function saveRows(table, rows, msg) { setDB(await busy(api('save', table, rows), msg)); }
+async function removeRows(table, ids) { setDB(await busy(api('remove', table, ids), 'Borrando…')); }
+
+// ---------- who is using the app ----------
+// publicador: anyone with the app link · conductor: opened a personal link · admin: entered the PIN.
+const TABS = { publicador: ['hoy'], conductor: ['hoy', 'informe'], admin: ['hoy', 'informe', 'planificar', 'editar'] };
+const TAB_NAMES = { hoy: 'Hoy', informe: 'Informe', planificar: 'Planificar', editar: 'Editar' };
+let pin = store.get('predi-pin-' + KEY) || '';
+let ckey = CONDUCTOR_KEY;
+// The last known role, so the right screens show at once (and offline) before the Sheet answers.
+let WHO = safeJSON(store.get('predi-who-' + KEY), null) || { role: 'publicador', nombre: '' };
+const isAdmin = () => WHO.role === 'admin';
+const canReport = () => WHO.role !== 'publicador';
+
+function setWho(w) {
+  if (w.pinMal) { pin = ''; store.set('predi-pin-' + KEY, ''); }
+  if (w.enlaceMal) {
+    ckey = ''; store.set('predi-c-' + KEY, '');
+    if (!DEMO) history.replaceState(null, '', location.pathname + '?api=' + API_ID);
+  }
+  if (w.aviso) toast(w.aviso, 7000);
+  const changed = w.role !== WHO.role || (w.nombre || '') !== WHO.nombre;
+  WHO = { role: w.role, nombre: w.nombre || '' };
+  store.set('predi-who-' + KEY, JSON.stringify(WHO));
+  if (changed && !TABS[WHO.role].includes(tab)) tab = 'hoy';
+}
 
 // ---------- state ----------
 // SERVER is what the Sheet has; PEND holds map edits not yet sent. DB = SERVER with PEND applied.
 let SERVER = emptyDB(), PEND = { save: {}, remove: {} }, DB = emptyDB();
 let BL = [], BYID = {}, LAST = {}, TCOLOR = {}, CONFIG = {};
-let tab = 'mapa', colorBy = 'territorio', editSub = 'bloques';
-let pin = store.get('territorios-pin', ss) || '';
+let tab = 'hoy', colorBy = 'territorio', editSub = 'bloques', showLogin = false;
 let plan = newPlan();
 let infFecha = ymd(new Date()), infForm = {};
 let editSel = null, lastSaved = null, addingPunto = false, shapeLayer = null;
@@ -280,10 +344,10 @@ function setCola(rows) { store.set('predi-cola-' + KEY, JSON.stringify(rows)); }
 let flushing = false;
 async function flushCola(manual) {
   const rows = cola();
-  if (!rows.length || flushing) return;
+  if (!rows.length || flushing || (!manual && !canReport())) return;
   flushing = true;
   try {
-    const data = await api('save', 'Informes', rows, pin);
+    const data = await api('save', 'Informes', rows);
     const sent = new Set(rows.map(r => r.id));
     setCola(cola().filter(r => !sent.has(r.id)));
     setDB(data);
@@ -335,7 +399,7 @@ async function commitAll() {
   const n = pendingCount();
   const changes = { save: {}, remove: PEND.remove };
   Object.keys(PEND.save).forEach(t => { changes.save[t] = Object.values(PEND.save[t]); });
-  const data = await busy(api('commit', changes, pin), 'Guardando ' + n + (n === 1 ? ' cambio…' : ' cambios…'));
+  const data = await busy(api('commit', changes), 'Guardando ' + n + (n === 1 ? ' cambio…' : ' cambios…'));
   PEND = { save: {}, remove: {} };
   setDB(data);
   toast('Cambios guardados.');
@@ -495,7 +559,10 @@ map.on('zoomend', zoomClass); zoomClass();
 
 function highlightSet() {
   if (tab === 'informe') return new Set(Object.keys(infForm));
-  if (tab === 'mapa' && shownSalida()) return new Set(salidaBlocks(shownSalida()));
+  if (tab === 'hoy') {
+    const list = shownSalida() ? [shownSalida()] : todaySalidas();
+    return list.length ? new Set(list.flatMap(salidaBlocks)) : null;
+  }
   if (tab === 'planificar') return new Set(plan.bloques);
   if (tab === 'editar' && editSel && editSel.kind === 'bloque') return new Set([editSel.id]);
   return null;
@@ -507,10 +574,10 @@ function renderMap() {
   const hi = highlightSet();
   const sat = base === 'satelite';
   const unsaved = PEND.save.Bloques || {};
-  const byStatus = colorBy === 'estado' && (tab === 'mapa' || tab === 'planificar');
+  const byStatus = colorBy === 'estado' && tab === 'planificar';
   BL.forEach(b => {
     const sel = hi && hi.has(b.id);
-    const dim = hi && !sel && (tab === 'informe' || tab === 'mapa');
+    const dim = hi && !sel && (tab === 'informe' || tab === 'hoy');
     const poly = L.polygon(b.coords, {
       color: sel ? '#c0392b' : unsaved[b.id] ? '#e67e22' : sat ? '#fff' : '#4a4a4a',
       weight: sel ? 3.5 : unsaved[b.id] ? 2.5 : sat ? 1.5 : 1,
@@ -536,17 +603,17 @@ function renderMap() {
   DB.Puntos.forEach(p => {
     const m = L.marker([+p.lat, +p.lng], {
       icon: L.divIcon({ className: 'lbl-p', html: '<span>' + esc(p.letra) + '</span>', iconSize: [0, 0] }),
-      draggable: tab === 'editar' && !!pin && editSub === 'puntos', pmIgnore: true,
+      draggable: tab === 'editar' && isAdmin() && editSub === 'puntos', pmIgnore: true,
     });
     m.bindTooltip(esc(p.nombre), { direction: 'top', offset: [0, -12] });
-    m.on('click', () => { if (tab === 'editar' && pin) { editSub = 'puntos'; editSel = { kind: 'punto', id: p.id }; renderAll(); } });
+    m.on('click', () => { if (tab === 'editar' && isAdmin()) { editSub = 'puntos'; editSel = { kind: 'punto', id: p.id }; renderAll(); } });
     m.on('dragend', () => { const ll = m.getLatLng(); stage('Puntos', { ...p, lat: ll.lat.toFixed(6), lng: ll.lng.toFixed(6) }); });
     gPuntos.addLayer(m);
   });
   if (tab === 'editar' && editSel && editSel.kind === 'punto' && !editSel.id) {
     gTemp.addLayer(L.marker([+editSel.lat, +editSel.lng], { icon: L.divIcon({ className: 'lbl-p', html: '<span style="background:#c0392b">?</span>', iconSize: [0, 0] }), pmIgnore: true, interactive: false }));
   }
-  if (tab === 'editar' && pin && editSub === 'bloques') {
+  if (tab === 'editar' && isAdmin() && editSub === 'bloques') {
     (window.MANZANAS || []).filter(c => !BYID[c.id]).forEach(c => {
       const sel = editSel && editSel.id === c.id;
       const poly = L.polygon(sel ? editSel.coords : c.coords, { color: sel ? '#c0392b' : sat ? '#fff' : '#777', weight: sel ? 3.5 : 1, dashArray: sel ? null : '4 3', fillColor: '#999', fillOpacity: sel ? 0.45 : 0.18 });
@@ -564,7 +631,7 @@ function renderMap() {
 
 function onBlockClick(b, e) {
   if (addingPunto) return placePunto(e.latlng);
-  if (tab === 'mapa') {
+  if (tab === 'hoy') {
     const hist = DB.Informes.filter(r => r.bloque === b.id).sort((a, c) => (c.fecha + c.creado).localeCompare(a.fecha + a.creado)).slice(0, 6);
     const last = LAST[b.id], next = nextSalidaFor(b.id);
     const nextNote = next && salidaNotes(next)[b.id];
@@ -580,11 +647,11 @@ function onBlockClick(b, e) {
     const row = document.querySelector('[data-row="' + b.id + '"]');
     if (row) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
   } else if (tab === 'planificar') {
-    if (!pin) return;
+    if (!isAdmin()) return;
     const i = plan.bloques.indexOf(b.id);
     if (i >= 0) plan.bloques.splice(i, 1); else plan.bloques.push(b.id);
     renderAll();
-  } else if (tab === 'editar' && pin) {
+  } else if (tab === 'editar' && isAdmin()) {
     editSub = 'bloques'; selectForEdit({ kind: 'bloque', id: b.id });
   }
 }
@@ -628,7 +695,7 @@ function zoomTerritory(t) {
   map.fitBounds(L.latLngBounds(BL.filter(b => b.t === t).flatMap(b => b.coords)), { padding: [30, 30] });
 }
 function onTerritoryClick(t) {
-  if (tab === 'planificar' && pin) toggleTerritory(t); else zoomTerritory(t);
+  if (tab === 'planificar' && isAdmin()) toggleTerritory(t); else zoomTerritory(t);
 }
 
 // While adding a punto, a tap anywhere (also on a manzana or a territory number) places it.
@@ -708,8 +775,10 @@ function setGuideAdjust(on) {
 const panel = $('#panel');
 
 function renderAll() {
-  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
-  const showDraw = tab === 'editar' && pin && editSub === 'bloques';
+  const tabs = TABS[WHO.role];
+  if (!tabs.includes(tab)) tab = 'hoy';
+  $('#tabs').innerHTML = tabs.length > 1 ? tabs.map(t => '<button data-tab="' + t + '" class="' + (t === tab ? 'on' : '') + '">' + TAB_NAMES[t] + '</button>').join('') : '';
+  const showDraw = tab === 'editar' && editSub === 'bloques';
   if (showDraw && !map.pm.controlsVisible()) {
     map.pm.addControls({ position: 'topleft', drawMarker: false, drawCircleMarker: false, drawPolyline: false, drawRectangle: false,
       drawCircle: false, drawText: false, editMode: false, dragMode: false, cutPolygon: false, removalMode: false, rotateMode: false });
@@ -722,8 +791,7 @@ function renderAll() {
   renderPending();
   renderCola();
   renderMap();
-  const needsPin = (tab === 'planificar' || tab === 'editar') && !pin;
-  panel.innerHTML = needsPin ? pinPanel() : { mapa: mapaPanel, informe: informePanel, planificar: planPanel, editar: editPanel }[tab]();
+  panel.innerHTML = showLogin ? loginPanel() : { hoy: hoyPanel, informe: informePanel, planificar: planPanel, editar: editPanel }[tab]();
 }
 
 function renderPending() {
@@ -740,11 +808,19 @@ function renderCola() {
     '<button class="b small" data-act="flush">Reintentar</button>';
 }
 
-function pinPanel() {
-  return '<h2>' + (tab === 'editar' ? 'Editar mapa' : 'Planificar') + '</h2>' +
-    '<p class="muted">Esta parte es solo para los hermanos encargados del territorio.</p>' +
-    '<label>PIN</label><input type="password" id="pin" inputmode="numeric" autocomplete="off">' +
-    '<div class="actions"><button class="b primary" data-act="pin">Entrar</button></div>';
+function loginPanel() {
+  return '<h2>Entrar como administrador</h2>' +
+    '<p class="muted">Solo para los hermanos encargados del territorio. El PIN se cambia en la hoja de Google (menú Territorios).</p>' +
+    '<label>PIN</label><input type="password" id="pin" autocomplete="off">' +
+    '<div class="actions"><button class="b primary" data-act="pin">Entrar</button><button class="b" data-act="logincancel">Cancelar</button></div>';
+}
+
+/** Bottom of Hoy: who you are, and the way in (or out) for the admin. */
+function accountFooter() {
+  const who = isAdmin() ? 'Entraste como <b>administrador</b> · <button class="link" data-act="logout">Salir</button>'
+    : WHO.role === 'conductor' ? 'Conductor: <b>' + esc(WHO.nombre) + '</b> · puedes enviar informes.'
+    : '¿Eres el encargado del territorio? <button class="link" data-act="login">Entrar como administrador</button>';
+  return '<div class="acct">' + who + '<br>Versión ' + VERSION + '</div>';
 }
 
 function colorControls() {
@@ -768,7 +844,7 @@ function salidaSummary(s) {
 
 // "Install the app": Android/desktop Chrome offer a prompt; on iPhone it's Share → Add to Home Screen.
 let installEvt = null;
-window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; if (tab === 'mapa') renderAll(); });
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; if (tab === 'hoy') renderAll(); });
 function installHint() {
   if (matchMedia('(display-mode: standalone)').matches || navigator.standalone) return '';
   if (installEvt) return '<div class="actions"><button class="b" data-act="install">📲 Instalar la app</button></div>';
@@ -785,16 +861,21 @@ function salidaDest(s) {
 }
 function directionsUrl(ll) { return 'https://www.google.com/maps/dir/?api=1&destination=' + ll[0].toFixed(6) + ',' + ll[1].toFixed(6); }
 function salidaLink(s) { return DEMO ? '' : location.origin + location.pathname + '?api=' + API_ID + '&salida=' + encodeURIComponent(s.id); }
-function fitSalida(s) {
+function todaySalidas() { const hoy = ymd(new Date()); return DB.Salidas.filter(s => s.fecha === hoy).sort(bySalidaTime); }
+function salidaPts(s) {
   const pts = salidaBlocks(s).map(id => BYID[id]).filter(Boolean).flatMap(b => b.coords);
   const p = puntoOf(s);
   if (p) pts.push([+p.lat, +p.lng]);
+  return pts;
+}
+function fitSalida(s) {
+  const pts = salidaPts(s);
   if (pts.length) map.fitBounds(L.latLngBounds(pts), { padding: [40, 40], maxZoom: 18 });
 }
 
 function salidaPanel(s) {
   const dest = salidaDest(s);
-  return '<button class="b small" data-act="verback">← Todas las salidas</button>' +
+  return '<button class="b small" data-act="verback">← Volver</button>' +
     '<div class="sal-h">' + esc(when(s)) + '</div>' +
     (s.punto ? '<div class="sal-d">📍 Punto de salida: <b>' + esc(puntoName(s.punto)) + '</b></div>' : '<div class="sal-d muted">Sin punto de salida.</div>') +
     (s.conductor ? '<div class="sal-d">Conductor: <b>' + esc(s.conductor) + '</b></div>' : '') +
@@ -802,30 +883,36 @@ function salidaPanel(s) {
     '<label>Manzanas</label>' + salidaSummary(s) +
     '<div class="actions">' + (dest ? '<a class="b primary" href="' + directionsUrl(dest) + '" target="_blank" rel="noopener">Cómo llegar</a>' : '') +
     '<button class="b" data-act="share">Compartir</button>' +
-    '<button class="b" data-act="goinf" data-v="' + s.fecha + '">Informar</button></div>' +
+    (canReport() ? '<button class="b" data-act="goinf" data-v="' + s.fecha + '">Informar</button>' : '') + '</div>' +
     '<p class="muted">“Cómo llegar” abre Google Maps con el camino ' + (s.punto ? 'hasta el punto de salida' : 'hasta las manzanas') + '.</p>';
 }
 
-function mapaPanel() {
+/** The big card for one salida on the Hoy screen: where, when, which manzanas, and how to get there. */
+function salidaCard(s, withDate) {
+  const dest = salidaDest(s);
+  return '<div class="card sal-card"><div class="sal-h">' + esc(withDate ? when(s) : s.hora ? '🕓 ' + s.hora : 'Salida') + '</div>' +
+    (s.punto ? '<div class="sal-d">📍 <b>' + esc(puntoName(s.punto)) + '</b></div>' : '') +
+    (s.conductor ? '<div class="sal-d">Conductor: ' + esc(s.conductor) + '</div>' : '') +
+    (s.notas ? '<div class="sal-d">' + esc(s.notas) + '</div>' : '') +
+    '<div class="sal-d"><b>Manzanas:</b></div>' + salidaSummary(s) +
+    '<div class="actions">' + (dest ? '<a class="b primary" href="' + directionsUrl(dest) + '" target="_blank" rel="noopener">Cómo llegar</a>' : '') +
+    '<button class="b" data-act="ver" data-id="' + s.id + '">Ver en el mapa</button>' +
+    (canReport() ? '<button class="b" data-act="goinf" data-v="' + s.fecha + '">Informar</button>' : '') + '</div></div>';
+}
+
+function hoyPanel() {
   const s = shownSalida();
   if (s) return salidaPanel(s);
-  const hoy = ymd(new Date()), g = rangos();
-  const prox = DB.Salidas.filter(s => s.fecha >= hoy).sort(bySalidaTime).slice(0, 8);
-  const viejos = BL.filter(b => !LAST[b.id] || daysSince(LAST[b.id].fecha) > g.amarillo).length;
-  const parciales = BL.filter(b => LAST[b.id] && LAST[b.id].estado === 'parcial').length;
-  return '<h2>Mapa del territorio</h2>' +
-    (BL.length ? '' : '<p>Todavía no hay manzanas. Entra en <b>Editar</b> para crearlas.</p>') +
-    colorControls() +
-    (BL.length ? '<p class="muted">' + BL.length + ' manzanas · ' + new Set(BL.map(b => b.t)).size + ' territorios · ' +
-      viejos + ' sin trabajar hace más de ' + g.amarillo + ' días · ' + parciales + ' parciales</p>' : '') +
-    '<p class="muted">Toca una manzana para ver su historial, o un número grande para acercarte a ese territorio. El botón ◎ muestra dónde estás.</p>' +
-    installHint() +
-    '<h3>Próximas salidas</h3>' +
-    (prox.length ? '<p class="muted">Toca una salida para ver dónde es, cómo llegar y compartirla.</p>' +
-      prox.map(s => '<div class="list-item click" data-act="ver" data-id="' + s.id + '"><div><b>' + esc(when(s)) + '</b>' + (s.punto ? ' · ' + esc(puntoName(s.punto)) : '') +
-      salidaSummary(s) + (s.conductor ? '<div class="muted">Conductor: ' + esc(s.conductor) + '</div>' : '') +
-      '</div><button class="b small" data-act="goinf" data-v="' + s.fecha + '">Informar</button></div>').join('')
-      : '<p class="muted">No hay salidas planificadas.</p>');
+  const hoy = ymd(new Date()), today = todaySalidas();
+  const later = DB.Salidas.filter(x => x.fecha > hoy).sort(bySalidaTime);
+  const rest = today.length ? later : later.slice(1);
+  return (today.length ? '<h2>Hoy · ' + fmt(hoy) + '</h2>' + today.map(x => salidaCard(x, false)).join('')
+      : '<h2>Hoy no hay salida</h2>' + (later.length ? '<p class="muted">La próxima:</p>' + salidaCard(later[0], true)
+        : '<p class="muted">Todavía no hay salidas planificadas.</p>')) +
+    (rest.length ? '<h3>Próximos días</h3>' + rest.slice(0, 8).map(x => '<div class="list-item click" data-act="ver" data-id="' + x.id + '"><div><b>' + esc(when(x)) + '</b>' +
+      (x.punto ? ' · ' + esc(puntoName(x.punto)) : '') + '<div class="muted">' + esc(describe(salidaBlocks(x))) + '</div></div><span class="muted">›</span></div>').join('') : '') +
+    '<p class="muted">Toca una manzana en el mapa para ver cuándo se trabajó. El botón ◎ muestra dónde estás.</p>' +
+    installHint() + accountFooter();
 }
 
 function fillInforme() {
@@ -852,7 +939,7 @@ function informePanel() {
   };
   const extras = Object.keys(infForm).filter(id => !infForm[id].salida && BYID[id]);
   return '<h2>Informe de predicación</h2>' +
-    '<label>Fecha</label><input type="date" data-in="inffecha" value="' + infFecha + '">' +
+    '<label>Fecha</label><input type="date" data-in="inffecha" value="' + infFecha + '" max="' + ymd(new Date()) + '">' +
     (salidas.length ? '' : '<p class="muted">No hay salidas planificadas para esta fecha. Puedes tocar manzanas en el mapa para informarlas igual.</p>') +
     salidas.map(s => '<div class="card"><div class="card-h">' + (s.hora ? esc(s.hora) + ' · ' : '') + (s.punto ? esc(puntoName(s.punto)) : 'Salida') + '</div>' +
       (s.conductor ? '<div class="muted">Conductor: ' + esc(s.conductor) + '</div>' : '') +
@@ -861,7 +948,8 @@ function informePanel() {
     (extras.length ? '<div class="card"><div class="card-h">Otras manzanas</div>' + extras.map(row).join('') + '</div>' : '') +
     (Object.keys(infForm).length ? '<p class="muted">Tocar una manzana en el mapa la agrega aquí.</p>' +
       '<button class="b small" data-act="allno">Marcar todo “No se hizo”</button>' +
-      '<label>Tu nombre</label><input type="text" data-in="quien" value="' + esc(store.get('territorios-quien') || '') + '" placeholder="Nombre de quien informa">' +
+      (isAdmin() ? '<label>Tu nombre</label><input type="text" data-in="quien" value="' + esc(store.get('territorios-quien') || '') + '" placeholder="Nombre de quien informa">'
+        : '<p class="muted">Informa: <b>' + esc(WHO.nombre) + '</b></p>') +
       '<div class="actions"><button class="b primary" data-act="enviar">Enviar informe</button></div>' : '');
 }
 
@@ -897,7 +985,8 @@ function planPanel() {
     '<div><label>Hora</label><input type="time" data-in="p-hora" value="' + esc(plan.hora) + '"></div></div>' +
     '<div><label>Punto de salida</label><select data-in="p-punto"><option value="">—</option>' +
       DB.Puntos.slice().sort((a, b) => a.letra.localeCompare(b.letra)).map(p => '<option value="' + esc(p.letra) + '"' + (plan.punto === p.letra ? ' selected' : '') + '>' + esc(p.letra + ' – ' + p.nombre) + '</option>').join('') + '</select></div>' +
-    '<label>Conductor</label><input type="text" data-in="p-conductor" value="' + esc(plan.conductor) + '">' +
+    '<label>Conductor</label><input type="text" data-in="p-conductor" list="conductores" value="' + esc(plan.conductor) + '">' +
+    '<datalist id="conductores">' + DB.Conductores.filter(c => c.activo !== 'no').map(c => '<option value="' + esc(c.nombre) + '">').join('') + '</datalist>' +
     '<label>Notas de la salida</label><input type="text" data-in="p-notas" value="' + esc(plan.notas) + '">' +
     '<label>Manzanas (' + sel.length + ') — puedes poner una nota a cada una</label>' +
     (sel.length ? sel.map(b => '<div class="sel-row"><b>' + bShort(b) + '</b>' +
@@ -907,6 +996,9 @@ function planPanel() {
     '<button class="b" data-act="planreset">' + (plan.id ? 'Cancelar' : 'Limpiar') + '</button></div>' +
     '<h3>Próximas salidas</h3>' + (prox.length ? prox.map(item).join('') : '<p class="muted">Ninguna.</p>') +
     '<h3>Territorios por tiempo sin trabajar</h3>' + colorControls() +
+    '<p class="muted">' + BL.length + ' manzanas · ' + new Set(BL.map(b => b.t)).size + ' territorios · ' +
+      BL.filter(b => !LAST[b.id] || daysSince(LAST[b.id].fecha) > g.amarillo).length + ' sin trabajar hace más de ' + g.amarillo + ' días · ' +
+      BL.filter(b => LAST[b.id] && LAST[b.id].estado === 'parcial').length + ' parciales</p>' +
     '<details><summary>Cambiar los rangos de días</summary><div class="rangos">Verde hasta <input type="number" min="1" id="r-verde" value="' + g.verde + '"> días · ' +
       'amarillo hasta <input type="number" min="1" id="r-amarillo" value="' + g.amarillo + '"> días · después rojo ' +
       '<button class="b small" data-act="rangos">Guardar</button></div></details>' +
@@ -918,11 +1010,22 @@ function planPanel() {
 }
 
 function editPanel() {
-  const sub = '<div class="seg" style="margin-bottom:10px">' + [['bloques', 'Manzanas'], ['puntos', 'Puntos de salida'], ['guia', 'Imagen guía']]
+  const sub = '<div class="seg" style="margin-bottom:10px">' + [['bloques', 'Manzanas'], ['puntos', 'Puntos'], ['conductores', 'Conductores'], ['guia', 'Imagen guía']]
     .map(([k, l]) => '<button data-act="sub" data-v="' + k + '" class="' + (editSub === k ? 'on' : '') + '">' + l + '</button>').join('') + '</div>';
-  const intro = '<p class="muted">Los cambios se juntan arriba en <b>“cambios sin guardar”</b>. Al terminar, toca <b>Guardar todo</b> (o <b>Descartar</b> para deshacerlos).</p>';
+  const intro = editSub === 'bloques' || editSub === 'puntos' ? '<p class="muted">Los cambios se juntan arriba en <b>“cambios sin guardar”</b>. Al terminar, toca <b>Guardar todo</b> (o <b>Descartar</b> para deshacerlos).</p>' : '';
   let body = '';
-  if (editSub === 'bloques') {
+  if (editSub === 'conductores') {
+    const cs = DB.Conductores.slice().sort((a, b) => a.nombre.localeCompare(b.nombre));
+    body = '<p>Cada conductor recibe <b>su propio enlace</b>. Con él puede enviar los informes; sin él, la app solo muestra las salidas.</p>' +
+      '<label>Nombre del conductor</label><div class="sel-row"><input type="text" id="c-nombre" placeholder="Ej.: Hno. Pérez">' +
+      '<button class="b primary" data-act="cadd">Agregar</button></div>' +
+      (cs.length ? cs.map(c => '<div class="list-item"><div><b>' + esc(c.nombre) + '</b>' + (c.activo === 'no' ? '<span class="tag">desactivado</span>' : '') + '</div>' +
+        '<div style="white-space:nowrap">' + (c.activo === 'no' ? '' : '<button class="b small primary" data-act="csend" data-id="' + c.id + '">Enviar enlace</button> ') +
+        '<button class="b small" data-act="ctoggle" data-id="' + c.id + '">' + (c.activo === 'no' ? 'Activar' : 'Desactivar') + '</button> ' +
+        '<button class="b small danger" data-act="cdel" data-id="' + c.id + '">Borrar</button></div></div>').join('')
+        : '<p class="muted">Todavía no hay conductores.</p>') +
+      '<p class="muted">Si un enlace llega a otra persona, desactívalo (o bórralo) y agrega al conductor de nuevo para darle uno nuevo.</p>';
+  } else if (editSub === 'bloques') {
     const free = (window.MANZANAS || []).filter(c => !BYID[c.id]).length;
     if (editSel && editSel.kind !== 'punto') {
       const b = editSel.kind === 'bloque' ? BYID[editSel.id] : null;
@@ -962,7 +1065,46 @@ function editPanel() {
         '<button class="b" data-act="guiasave">Recordar posición</button><button class="b danger" data-act="guiaoff">Quitar imagen</button></div>' +
         '<p class="muted">Al ajustar: arrastra el punto azul para mover la imagen y los rosados (esquinas) para girarla o estirarla, hasta que la plaza y las avenidas coincidan.</p>' : '');
   }
-  return '<h2>Editar mapa</h2>' + sub + intro + body + '<p class="muted" style="margin-top:24px">Versión ' + VERSION + '</p>';
+  return '<h2>Editar</h2>' + sub + intro + body + '<p class="muted" style="margin-top:24px">Versión ' + VERSION + '</p>';
+}
+
+// ---------- conductor links ----------
+function newClave() {
+  const b = crypto.getRandomValues(new Uint8Array(18));
+  return btoa(String.fromCharCode(...b)).replace(/\+/g, '-').replace(/\//g, '_');
+}
+function conductorLink(c) {
+  return location.origin + location.pathname + (DEMO ? '?demo&c=' : '?api=' + API_ID + '&c=') + c.clave;
+}
+let qrLib = null;
+function loadQr() {
+  qrLib = qrLib || new Promise((res, rej) => {
+    const el = document.createElement('script');
+    el.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js';
+    el.onload = () => res(window.qrcode);
+    el.onerror = () => { qrLib = null; rej(new Error('No se pudo cargar el código QR.')); };
+    document.head.appendChild(el);
+  });
+  return qrLib;
+}
+async function openConductorShare(c) {
+  const link = conductorLink(c);
+  const text = 'Hola, ' + c.nombre + '. Este es tu enlace para la app de territorios: con él puedes enviar los informes de predicación. ' +
+    'Es solo para ti, no lo pases a otros.\n' + link;
+  let qr = '';
+  try {
+    const q = (await loadQr())(0, 'M');
+    q.addData(link); q.make();
+    qr = '<img class="qr" alt="Código QR" src="' + q.createDataURL(8, 8) + '">';
+  } catch (e) {}
+  shareData = { text };
+  $('#share .box').innerHTML = '<div class="row-t"><span>Enlace de ' + esc(c.nombre) + '</span><button class="b small" data-act="shareclose">✕</button></div>' +
+    qr + '<p class="muted">Que lo escanee con la cámara de su celular, o mándaselo:</p>' +
+    '<div class="actions">' + (navigator.share ? '<button class="b primary" data-act="sharetext">Compartir…</button>' : '') +
+    '<a class="b" href="https://wa.me/?text=' + encodeURIComponent(text) + '" target="_blank" rel="noopener">WhatsApp</a>' +
+    '<button class="b" data-act="copylink">Copiar enlace</button></div>' +
+    '<label>Enlace</label><textarea rows="3" readonly id="share-link" onclick="this.select()">' + esc(link) + '</textarea>';
+  $('#share').classList.add('show');
 }
 
 // ---------- sharing a salida (picture + text) ----------
@@ -1122,10 +1264,27 @@ function shareNative() {
 
 // ---------- panel events ----------
 const ACT = {
+  login() { showLogin = true; renderAll(); panel.scrollTop = 0; const el = $('#pin'); if (el) el.focus(); },
+  logincancel() { showLogin = false; renderAll(); },
   async pin() {
     const v = $('#pin').value.trim();
-    if (await busy(api('checkPin', v), 'Verificando…')) { pin = v; store.set('territorios-pin', v, ss); renderAll(); }
-    else toast('PIN incorrecto');
+    if (!v) return;
+    pin = v;
+    setDB(await busy(api('getAll'), 'Verificando…')); // a wrong PIN comes back as publicador and is forgotten
+    if (!isAdmin()) return renderAll();
+    store.set('predi-pin-' + KEY, v);
+    showLogin = false; tab = 'planificar';
+    renderAll();
+    toast('Entraste como administrador.');
+  },
+  async logout() {
+    if (pendingCount() && !confirm('Hay cambios sin guardar. ¿Salir igual y perderlos?')) return;
+    endShape(); PEND = { save: {}, remove: {} }; editSel = null;
+    pin = ''; store.set('predi-pin-' + KEY, '');
+    setWho({ role: ckey ? WHO.role : 'publicador', nombre: '' });
+    delete SERVER.Conductores; // their links are only for the admin's eyes
+    setDB(SERVER);
+    try { setDB(await api('getAll')); } catch (e) {}
   },
   commit() { return commitAll(); },
   flush() { return flushCola(true); },
@@ -1135,7 +1294,7 @@ const ACT = {
   ver(el) {
     const s = DB.Salidas.find(x => x.id === el.dataset.id);
     if (!s) return;
-    tab = 'mapa'; verSalida = s.id; map.closePopup(); renderAll(); fitSalida(s); panel.scrollTop = 0;
+    tab = 'hoy'; showLogin = false; verSalida = s.id; map.closePopup(); renderAll(); fitSalida(s); panel.scrollTop = 0;
   },
   verback() { verSalida = ''; renderAll(); },
   async share() { await busy(openShare(shownSalida()), 'Preparando imagen…'); },
@@ -1152,7 +1311,7 @@ const ACT = {
   infdrop(el) { delete infForm[el.dataset.id]; renderAll(); },
   allno() { Object.values(infForm).forEach(f => { f.estado = 'no'; f.porcentaje = ''; }); renderAll(); },
   async enviar() {
-    const quien = (store.get('territorios-quien') || '').trim();
+    const quien = isAdmin() ? (store.get('territorios-quien') || '').trim() : WHO.nombre; // the Sheet uses the conductor's own name anyway
     const creado = new Date().toISOString();
     const rows = Object.keys(infForm).filter(id => infForm[id].estado).map(id => ({
       id: uid(), fecha: infFecha, salida: infForm[id].salida, bloque: id, estado: infForm[id].estado,
@@ -1204,6 +1363,28 @@ const ACT = {
     if (confirm('¿Borrar la salida del ' + when(s) + '? (Los informes ya enviados se conservan.)')) await removeRows('Salidas', [s.id]);
   },
   sub(el) { editSub = el.dataset.v; editSel = null; addingPunto = false; renderAll(); },
+  async cadd() {
+    const nombre = $('#c-nombre').value.trim();
+    if (!nombre) return toast('Escribe el nombre del conductor.');
+    const c = { id: uid(), nombre, clave: newClave(), activo: 'si', creado: new Date().toISOString() };
+    await saveRows('Conductores', [c], 'Agregando…');
+    openConductorShare(c);
+  },
+  csend(el) { openConductorShare(DB.Conductores.find(c => c.id === el.dataset.id)); },
+  async ctoggle(el) {
+    const c = DB.Conductores.find(x => x.id === el.dataset.id);
+    await saveRows('Conductores', [{ ...c, activo: c.activo === 'no' ? 'si' : 'no' }]);
+  },
+  async cdel(el) {
+    const c = DB.Conductores.find(x => x.id === el.dataset.id);
+    if (confirm('¿Borrar a ' + c.nombre + '? Su enlace dejará de servir. (Sus informes se conservan.)')) await removeRows('Conductores', [c.id]);
+  },
+  sharetext() { navigator.share({ text: shareData.text }).catch(() => {}); },
+  async copylink() {
+    const el = $('#share-link');
+    try { await navigator.clipboard.writeText(el.value); } catch (e) { el.select(); document.execCommand('copy'); }
+    toast('Enlace copiado.');
+  },
   bsave() {
     const t = +$('#e-t').value, n = +$('#e-n').value;
     if (!(t > 0 && n > 0)) return toast('Pon el número de territorio y de manzana.');
@@ -1281,18 +1462,20 @@ $('#tabs').addEventListener('click', e => {
   const b = e.target.closest('button');
   if (!b) return;
   if (shapeLayer) ACT.bcancel();
-  tab = b.dataset.tab; editSel = null; addingPunto = false; verSalida = '';
+  tab = b.dataset.tab; editSel = null; addingPunto = false; verSalida = ''; showLogin = false;
   map.closePopup();
   renderAll();
 });
 window.addEventListener('beforeunload', e => { if (pendingCount()) { e.preventDefault(); e.returnValue = ''; } });
 
 // ---------- start ----------
+/** First view: the salida from a shared link, else today's salidas, else the whole territory. */
 function fitStart() {
-  const pts = BL.length ? BL.flatMap(b => b.coords) : (window.MANZANAS || []).flatMap(c => c.coords);
   map.invalidateSize();
-  if (pts.length) map.fitBounds(L.latLngBounds(pts), { padding: [10, 10] });
-  if (shownSalida()) fitSalida(shownSalida());
+  if (shownSalida()) return fitSalida(shownSalida());
+  const today = todaySalidas().flatMap(salidaPts);
+  const pts = today.length ? today : BL.length ? BL.flatMap(b => b.coords) : (window.MANZANAS || []).flatMap(c => c.coords);
+  if (pts.length) map.fitBounds(L.latLngBounds(pts), { padding: [30, 30], maxZoom: 17 });
 }
 /** Accepts the app link from the QR, the Apps Script /exec URL, or just the id. */
 function connect(text) {

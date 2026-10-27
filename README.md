@@ -8,15 +8,22 @@ A free territory app for Congregación La Villa (Villa 1ro de Mayo, Santa Cruz).
 
 The page itself holds no data and no link to the Sheet, so it's fine for this repository to be public.
 
+## Who sees what
+
+| | How they get in | What they see |
+|---|---|---|
+| **Publicador** | Scans the app's QR code (or opens its link) | **Hoy** only: today's salida with time, meeting point, **Cómo llegar**, and the manzanas to work, plus the next days |
+| **Conductor** | Opens the personal link the admin sends them | **Hoy** + **Informe**: report what was done today or any earlier day. Reports carry their name automatically |
+| **Admin** | Taps *Entrar como administrador* at the bottom of Hoy and enters the PIN | Everything: **Hoy**, **Informe**, **Planificar**, **Editar** (manzanas, meeting points, conductores, paper-map overlay) |
+
+The Sheet enforces these rules, not only the page: without a conductor link or the PIN, the Sheet refuses informes and changes.
+
 ## What it does
 
-- **Mapa:** manzanas colored by territory, or by how long since each was last worked.
-  - Tap a manzana to see its history.
-  - Tap an upcoming salida to see where it meets, get directions (**Cómo llegar**), or share it as a picture or as text (**Compartir**).
-  - **◎** shows where you are; **Calles / Satélite** switches the background.
-- **Informe:** mark each manzana of the day *Completo*, *Parcial* or *No se hizo*.
-- **Planificar** (PIN): date and time, meeting point, conductor, manzanas with notes, and territories sorted by time without being worked.
-- **Editar** (PIN): label manzanas, reshape them, add meeting points, lay the paper map over the streets.
+- **Hoy:** big card(s) for today's salida, with **Cómo llegar** (Google Maps directions), **Ver en el mapa** and, in the salida's detail, **Compartir** (a picture or text to send). Today's manzanas are highlighted on the map. Tap any manzana to see when it was last worked; **◎** shows where you are; **Calles / Satélite** switches the background.
+- **Informe** (conductor, admin): mark each manzana *Completo*, *Parcial* or *No se hizo*.
+- **Planificar** (admin): date and time, meeting point, conductor, manzanas with notes; territories sorted by time without being worked, with the map colored by last work.
+- **Editar** (admin): label and reshape manzanas, add meeting points, **Conductores** (create and send their links), lay the paper map over the streets.
 - **Installable:**
   - Android Chrome shows **📲 Instalar la app** on the Mapa tab.
   - On iPhone: Share → **Agregar a inicio** (Add to Home Screen).
@@ -53,18 +60,26 @@ The page itself holds no data and no link to the Sheet, so it's fine for this re
 3. Click **+ → HTML** and name it `Qr`. Paste `apps-script/Qr.html` into it.
 4. Delete the old `Index` and `Manzanas` files; they now live on GitHub Pages.
 5. Save. Pick `setup` in the function dropdown and click **Run**, then approve the new permission (the Sheet menu and QR window need it).
+   If you'd set `ADMIN_PIN` in Script properties before, it keeps working.
 6. **Deploy → Manage deployments**, click the pencil on your existing deployment, set *Version* to **New version**, and click **Deploy**.
    - Keep *Execute as* **Me** and *Who has access* **Anyone**. "Anyone with a Google account" would block the app.
    - Editing the existing deployment keeps its link, so old links and the Google Sites embed now show an **Abrir la app** button.
 
-### 3. Get the QR code
+### 3. Set the PIN and get the QR code
 
 1. Reload the Sheet. A **Territorios** menu appears (it can take a few seconds).
-2. Choose **Territorios → Código QR de la app**.
+2. Choose **Territorios → Cambiar PIN de administrador…** and type a PIN (at least 4 characters). You can change it there any time; admins then enter the new one.
+3. Choose **Territorios → Código QR de la app**.
    - The first time it may ask for the **web app URL**. Copy it from **Deploy → Manage deployments**; it ends in `/exec`.
 3. Share the QR (right-click → copy image, print it), or use **Copiar enlace** to send the link.
 
-### 4. Google Sites
+### 4. Give conductores their links
+
+In the app, enter as admin → **Editar → Conductores**. Add each conductor by name, then **Enviar enlace**: show them the QR, or send it by WhatsApp. Opening that link once is enough; the phone remembers it.
+
+If a link reaches the wrong person, **Desactivar** it (or **Borrar** it) and add the conductor again to get a new link. Their past informes stay.
+
+### 5. Google Sites
 
 Replace the old embed with a **Button** that links to the app link from the QR window. Embedding the app inside Sites works, but inside a frame, location and installing are blocked.
 
@@ -79,8 +94,10 @@ New columns are added to the Sheet automatically the first time the app talks to
 
 ## Things to know
 
-- **The QR link is the key to the data.** Anyone with it can see the map, salidas, meeting points and conductors, and can send informes. Planning and editing need the PIN (Apps Script → Project Settings → Script properties → `ADMIN_PIN`). Share the QR only within the congregation.
-- **Trying it without the Sheet:** open the page from `localhost`, or add `?demo` to the address. Data is then saved only in that browser, and the PIN is 1234.
+- **The QR link is the key to the data.** Anyone with it can see the map, salidas, meeting points, conductor names and past informes. Share the QR only within the congregation.
+- **Conductor links are personal.** The secret part of each one is in the *Conductores* sheet (`clave` column); only the admin's app ever receives it.
+- **The PIN** is stored in the script's properties (set from the Sheet menu). After 10 wrong tries the Sheet refuses the PIN for 15 minutes. The admin's phone or computer remembers the PIN until **Salir**.
+- **Trying it without the Sheet:** open the page from `localhost`, or add `?demo` to the address. Data is then saved only in that browser, and the admin PIN is 1234.
 - **iPhone note:** an app added to the home screen keeps its own storage. If it ever opens asking for the QR code, scan it once more.
 - **Speed:** each trip to Google takes a couple of seconds. The app shows the saved copy at once and refreshes in the background, and map edits are sent together with **Guardar todo**.
 
