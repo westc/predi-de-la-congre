@@ -181,6 +181,7 @@
   .badge { display:inline-block; min-width:18px; padding:0 5px; margin-left:4px; border-radius:9px; background:#d9480f; color:#fff; font-size:11px; font-weight:700; line-height:18px; text-align:center; }
   .sug { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:8px; }
   .sug input { width:60px; padding:5px 6px; }
+  label.check { display:flex; align-items:center; gap:6px; color:var(--fg); margin:6px 0 0; }
   .heat-bar { height:10px; border-radius:3px; border:1px solid rgba(0,0,0,.15); margin-top:8px; }
   .heat-ends { display:flex; justify-content:space-between; gap:8px; font-size:12px; color:var(--muted); }
   .terr-row details summary { margin:2px 0 0; }
@@ -242,7 +243,7 @@
 <script src="manzanas.js"></script>
 <script>
 // ---------- settings ----------
-const VERSION = '22 · 28/10/2026'; // shown at the bottom of Editar; bump when changing this file
+const VERSION = '23 · 28/10/2026'; // shown at the bottom of Editar; bump when changing this file
 const PALETTE = ['#fff27a','#f7a8c8','#f9b26b','#ffd6b3','#b9dd8f','#80e0e8','#bba0ec','#a9c8f0','#d0d0d0','#f3df5a','#eaa3f2','#a3dcbc'];
 const PLAZA = [-17.794426, -63.134013];
 // Rough placement of the paper map over the streets: top-left, top-right, bottom-left corners.
@@ -690,7 +691,7 @@ function sugerencia(n, excluir) {
   const ll = b => L.latLng(centroid(b.coords));
   const cerca = pll && BL.length ? BL.slice().sort((a, b) => pll.distanceTo(ll(a)) - pll.distanceTo(ll(b)))[0] : null;
   const area = cerca ? areaDe(cerca.t) : areaActual(); // the punto's area, or the one shown on the map
-  let cands = BL.filter(b => areaDe(b.t) === area && !ocupadas.has(b.id) && !excluir.includes(b.id));
+  let cands = BL.filter(b => areaDe(b.t) === area && !ocupadas.has(b.id) && !excluir.includes(b.id) && (!sugSinNunca || lastDone(b.t)));
   const viejas = cands.filter(b => !COMP[b.id] || daysSince(COMP[b.id]) > RECIENTE);
   if (viejas.length >= n) cands = viejas; // manzanas completed in the last weeks only if there aren't enough others
   if (!cands.length) return [];
@@ -714,6 +715,7 @@ function sugerencia(n, excluir) {
 }
 const RECIENTE = 21; // days: a manzana completed more recently than this isn't suggested
 let sugN = +store.get('predi-sugn') || 4;
+let sugSinNunca = store.get('predi-sug-sinnunca') === '1'; // leave out territories never completed (e.g. no history yet)
 /**
  * Replaces the salida's manzanas with a suggestion. otra: different manzanas from the ones suggested before (starting
  * over when none are left). plan.sug remembers what was suggested, until the selection is changed by hand.
@@ -1563,6 +1565,7 @@ function planPanel() {
     '<label>Notas de la salida</label><input type="text" data-in="p-notas" value="' + esc(plan.notas) + '">' +
     '<div class="sug"><button class="b" data-act="sugerir">✨ ' + (plan.sug ? 'Otra sugerencia' : 'Sugerir manzanas') + '</button>' +
       '<span class="muted">cuántas</span><input type="number" min="1" max="30" data-in="sugn" value="' + sugN + '"></div>' +
+    '<label class="check"><input type="checkbox" data-in="sugnunca"' + (sugSinNunca ? ' checked' : '') + '> Sin territorios nunca completados</label>' +
     '<p class="muted">Sugiere las que llevan más tiempo sin completarse (no las completadas en las últimas 3 semanas), juntas' +
       (plan.punto ? ' y cerca del punto ' + esc(plan.punto) + '.' : '. Elige antes el punto de salida para que queden cerca de él.') + '</p>' +
     '<label>Manzanas (' + sel.length + ') — puedes poner una nota a cada una</label>' +
@@ -2221,6 +2224,7 @@ const INPUT = {
     if (plan.sug) aplicarSugerencia(false); // the suggestion follows the punto until it's changed by hand
     renderAll();
   },
+  sugnunca(el) { sugSinNunca = el.checked; store.set('predi-sug-sinnunca', sugSinNunca ? '1' : ''); if (plan.sug) aplicarSugerencia(false); renderAll(); },
   sugn(el) { sugN = Math.max(1, Math.min(30, +el.value || 4)); store.set('predi-sugn', sugN); if (plan.sug) aplicarSugerencia(false); renderAll(); },
   'p-conductor'(el) { plan.conductor = el.value; },
   'p-notas'(el) { plan.notas = el.value; },
@@ -2240,7 +2244,7 @@ const INPUT = {
   guiaop(el) { guide.setOpacity(+el.value); },
 };
 // "change" for controls that re-render or save; "input" for live text so typing never loses focus.
-const ON_CHANGE = ['inffecha', 'tcolor', 'guiafile', 'p-fecha', 'p-hora', 'p-punto', 's13anio', 'nvfile', 'arname', 'arterr', 'sugn'];
+const ON_CHANGE = ['inffecha', 'tcolor', 'guiafile', 'p-fecha', 'p-hora', 'p-punto', 's13anio', 'nvfile', 'arname', 'arterr', 'sugn', 'sugnunca'];
 
 function onAct(e) {
   const el = e.target.closest('[data-act]');
