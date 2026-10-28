@@ -99,6 +99,7 @@
   .sel-row { display:flex; align-items:center; gap:8px; padding:5px 0; }
   .sel-row b { white-space:nowrap; min-width:58px; }
   .sel-row input { padding:5px 8px; font-size:13px; }
+  .sel-hint { margin:-2px 0 6px 66px; font-size:12px; }
   .list-item { display:flex; justify-content:space-between; gap:8px; align-items:flex-start; padding:8px 0; border-top:1px solid var(--line); }
   .list-item:first-child { border-top:0; }
   .terr-row { display:flex; align-items:center; gap:8px; padding:5px 0; border-top:1px solid var(--line); font-size:14px; }
@@ -232,7 +233,7 @@
 <script src="manzanas.js"></script>
 <script>
 // ---------- settings ----------
-const VERSION = '15 · 28/10/2026'; // shown at the bottom of Editar; bump when changing this file
+const VERSION = '16 · 28/10/2026'; // shown at the bottom of Editar; bump when changing this file
 const PALETTE = ['#fff27a','#f7a8c8','#f9b26b','#ffd6b3','#b9dd8f','#80e0e8','#bba0ec','#a9c8f0','#d0d0d0','#f3df5a','#eaa3f2','#a3dcbc'];
 const PLAZA = [-17.794426, -63.134013];
 // Rough placement of the paper map over the streets: top-left, top-right, bottom-left corners.
@@ -411,7 +412,7 @@ function setWho(w) {
 // SERVER is what the Sheet has; PEND holds map edits not yet sent. DB = SERVER with PEND applied.
 let SERVER = emptyDB(), PEND = { save: {}, remove: {} }, DB = emptyDB();
 let BL = [], BYID = {}, LAST = {}, TCOLOR = {}, CONFIG = {}, CICLOS = {}, HEATC = {};
-// Per manzana: last day it was completed, partial work since then, and its heat color (Planificar → Último trabajo).
+// Per manzana: last day it was completed, the partial informe since then (if any), and its heat color (Planificar → Último trabajo).
 let COMP = {}, PARC = {}, BHEAT = {};
 let s13Anio = anioServicio(ymd(new Date()));
 let tab = 'hoy', colorBy = 'territorio', editSub = 'bloques', showLogin = false;
@@ -494,7 +495,7 @@ function rebuild() {
   COMP = {}; PARC = {};
   sortedInformes().forEach(r => {
     if (r.estado !== 'no') LAST[r.bloque] = r;
-    if (r.estado === 'completo') { COMP[r.bloque] = r.fecha; delete PARC[r.bloque]; } else if (r.estado === 'parcial') PARC[r.bloque] = r.fecha;
+    if (r.estado === 'completo') { COMP[r.bloque] = r.fecha; delete PARC[r.bloque]; } else if (r.estado === 'parcial') PARC[r.bloque] = r;
   });
   BHEAT = rankHeat(Object.fromEntries(BL.map(b => [b.id, COMP[b.id] || ''])));
   CICLOS = territoryCycles();
@@ -902,7 +903,7 @@ function onBlockClick(b, e) {
   } else if (tab === 'planificar') {
     if (!isAdmin()) return;
     const i = plan.bloques.indexOf(b.id);
-    if (i >= 0) plan.bloques.splice(i, 1); else plan.bloques.push(b.id);
+    if (i >= 0) plan.bloques.splice(i, 1); else addToPlan([b.id]);
     renderAll();
   } else if (tab === 'editar' && isAdmin()) {
     editSub = 'bloques'; selectForEdit({ kind: 'bloque', id: b.id });
@@ -941,8 +942,20 @@ function keepShape() {
 function toggleTerritory(t) {
   const ids = BL.filter(b => b.t === t).map(b => b.id);
   const all = ids.every(id => plan.bloques.includes(id));
-  plan.bloques = all ? plan.bloques.filter(id => !ids.includes(id)) : plan.bloques.concat(ids.filter(id => !plan.bloques.includes(id)));
+  if (all) plan.bloques = plan.bloques.filter(id => !ids.includes(id)); else addToPlan(ids.filter(id => !plan.bloques.includes(id)));
   renderAll();
+}
+/** "Quedó parcial el 07/12 (~50%): solo la calle 8", for a manzana with partial work since it was last completed. */
+function parcialText(id) {
+  const r = PARC[id];
+  return r ? 'Quedó parcial el ' + fmtCorto(r.fecha).slice(0, 5) + (r.porcentaje ? ' (~' + r.porcentaje + '%)' : '') + (r.nota ? ': ' + r.nota : '') : '';
+}
+/** Adds manzanas to the salida; one left partial starts with that report as its note, for the admin to turn into what's left to do. */
+function addToPlan(ids) {
+  ids.forEach(id => {
+    plan.bloques.push(id);
+    if (PARC[id] && !plan.notasB[id]) plan.notasB[id] = parcialText(id);
+  });
 }
 function zoomTerritory(t) {
   map.fitBounds(L.latLngBounds(BL.filter(b => b.t === t).flatMap(b => b.coords)), { padding: [30, 30] });
@@ -1324,9 +1337,10 @@ function planPanel() {
     '<datalist id="conductores">' + DB.Conductores.filter(c => c.activo !== 'no').map(c => '<option value="' + esc(c.nombre) + '">').join('') + '</datalist>' +
     '<label>Notas de la salida</label><input type="text" data-in="p-notas" value="' + esc(plan.notas) + '">' +
     '<label>Manzanas (' + sel.length + ') — puedes poner una nota a cada una</label>' +
-    (sel.length ? sel.map(b => '<div class="sel-row"><b>' + bShort(b) + '</b>' +
+    (sel.length ? sel.map(b => '<div class="sel-row"><b>' + bShort(b) + (PARC[b.id] ? ' ◐' : '') + '</b>' +
       '<input type="text" data-in="p-nb" data-id="' + b.id + '" value="' + esc(plan.notasB[b.id] || '') + '" placeholder="Ej.: solo Av. General Campero">' +
-      '<button class="b small" data-act="pdrop" data-id="' + b.id + '" title="Quitar">✕</button></div>').join('') : '<p class="muted">Ninguna todavía.</p>') +
+      '<button class="b small" data-act="pdrop" data-id="' + b.id + '" title="Quitar">✕</button></div>' +
+      (PARC[b.id] ? '<div class="muted sel-hint">◐ ' + esc(parcialText(b.id)) + '. Cambia la nota para decir qué falta.</div>' : '')).join('') : '<p class="muted">Ninguna todavía.</p>') +
     '<div class="actions"><button class="b primary" data-act="plansave">' + (plan.id ? 'Guardar cambios' : 'Guardar salida') + '</button>' +
     '<button class="b" data-act="planreset">' + (plan.id ? 'Cancelar' : 'Limpiar') + '</button></div>' +
     '<h3>Próximas salidas</h3>' + (prox.length ? prox.map(item).join('') : '<p class="muted">Ninguna.</p>') +
