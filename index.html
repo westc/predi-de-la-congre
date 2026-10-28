@@ -238,7 +238,7 @@
 <script src="manzanas.js"></script>
 <script>
 // ---------- settings ----------
-const VERSION = '19 · 28/10/2026'; // shown at the bottom of Editar; bump when changing this file
+const VERSION = '20 · 28/10/2026'; // shown at the bottom of Editar; bump when changing this file
 const PALETTE = ['#fff27a','#f7a8c8','#f9b26b','#ffd6b3','#b9dd8f','#80e0e8','#bba0ec','#a9c8f0','#d0d0d0','#f3df5a','#eaa3f2','#a3dcbc'];
 const PLAZA = [-17.794426, -63.134013];
 // Rough placement of the paper map over the streets: top-left, top-right, bottom-left corners.
@@ -631,6 +631,14 @@ function nextSalidaFor(id) {
   return DB.Salidas.filter(s => s.fecha >= hoy && salidaBlocks(s).includes(id)).sort(bySalidaTime)[0];
 }
 function puntoOf(s) { return DB.Puntos.find(p => p.letra === s.punto); }
+/** Archived meeting points (Config "puntos_archivados" = [ids]): off the map and out of Planificar, but old salidas keep them. */
+function archivados() { return new Set(safeJSON(CONFIG.puntos_archivados, null) || []); }
+function setArchivado(id, on) {
+  const a = archivados();
+  if (on) a.add(id); else a.delete(id);
+  stage('Config', { id: 'puntos_archivados', valor: JSON.stringify([...a]) });
+}
+const porLetra = (a, b) => a.letra.localeCompare(b.letra);
 function puntoName(letra) {
   const p = DB.Puntos.find(p => p.letra === letra);
   return p ? p.letra + ' – ' + p.nombre : letra;
@@ -893,7 +901,9 @@ function renderMap() {
     m.on('click', e => addingPunto ? placePunto(e.latlng) : onTerritoryClick(+t));
     gTerr.addLayer(m);
   });
-  DB.Puntos.forEach(p => {
+  const arch = archivados(), hoyStr = ymd(new Date());
+  const enUso = new Set(DB.Salidas.filter(x => x.fecha >= hoyStr).map(x => x.punto).concat(shownSalida() ? [shownSalida().punto] : []));
+  DB.Puntos.filter(p => !arch.has(p.id) || enUso.has(p.letra)).forEach(p => {
     const m = L.marker([+p.lat, +p.lng], {
       icon: L.divIcon({ className: 'lbl-p', html: '<span>' + esc(p.letra) + '</span>', iconSize: [0, 0] }),
       draggable: tab === 'editar' && isAdmin() && editSub === 'puntos', pmIgnore: true,
@@ -1442,7 +1452,8 @@ function planPanel() {
     '<div class="grid2"><div><label>Fecha</label><input type="date" data-in="p-fecha" value="' + plan.fecha + '"></div>' +
     '<div><label>Hora</label><input type="time" data-in="p-hora" value="' + esc(plan.hora) + '"></div></div>' +
     '<div><label>Punto de salida</label><select data-in="p-punto"><option value="">—</option>' +
-      DB.Puntos.slice().sort((a, b) => a.letra.localeCompare(b.letra)).map(p => '<option value="' + esc(p.letra) + '"' + (plan.punto === p.letra ? ' selected' : '') + '>' + esc(p.letra + ' – ' + p.nombre) + '</option>').join('') + '</select></div>' +
+      DB.Puntos.filter(p => !archivados().has(p.id) || plan.punto === p.letra).sort(porLetra).map(p => '<option value="' + esc(p.letra) + '"' + (plan.punto === p.letra ? ' selected' : '') + '>' +
+        esc(p.letra + ' – ' + p.nombre) + (archivados().has(p.id) ? ' (archivado)' : '') + '</option>').join('') + '</select></div>' +
     '<label>Conductor</label><input type="text" data-in="p-conductor" list="conductores" value="' + esc(plan.conductor) + '">' +
     '<datalist id="conductores">' + DB.Conductores.filter(c => c.activo !== 'no').map(c => '<option value="' + esc(c.nombre) + '">').join('') + '</datalist>' +
     '<label>Notas de la salida</label><input type="text" data-in="p-notas" value="' + esc(plan.notas) + '">' +
@@ -1543,6 +1554,11 @@ function openS13() {
   document.body.classList.add('s13');
 }
 
+function ptList(ps, accion) {
+  return ps.sort(porLetra).map(x => '<div class="list-item"><div><b>' + esc(x.letra) + '</b> – ' + esc(x.nombre) + '</div>' +
+    '<button class="b small" data-act="ptarch" data-id="' + esc(x.id) + '">' + accion + '</button></div>').join('');
+}
+
 function editPanel() {
   const sub = '<div class="seg seg-wrap" style="margin-bottom:10px">' + [['bloques', 'Manzanas'], ['puntos', 'Puntos'], ['areas', 'Áreas'], ['conductores', 'Conductores'], ['guia', 'Imagen guía']]
     .map(([k, l]) => '<button data-act="sub" data-v="' + k + '" class="' + (editSub === k ? 'on' : '') + '">' + l + '</button>').join('') + '</div>';
@@ -1598,11 +1614,15 @@ function editPanel() {
     body = (p ? '<div class="card"><div class="card-h">' + (p.id ? 'Punto ' + esc(p.letra) : 'Punto nuevo') + '</div>' +
         '<div class="grid2"><div><label>Letra</label><input type="text" id="pt-letra" maxlength="3" value="' + esc(p.letra || '') + '"></div>' +
         '<div><label>Nombre</label><input type="text" id="pt-nombre" value="' + esc(p.nombre || '') + '" placeholder="Salón del Reino"></div></div>' +
-        '<div class="actions"><button class="b primary" data-act="ptsave">Listo</button>' + (p.id ? '<button class="b danger" data-act="ptdel">Quitar</button>' : '') +
+        '<div class="actions"><button class="b primary" data-act="ptsave">Listo</button>' +
+        (p.id ? '<button class="b" data-act="ptarch" data-id="' + esc(p.id) + '">' + (archivados().has(p.id) ? 'Restaurar' : 'Archivar') + '</button>' +
+          '<button class="b danger" data-act="ptdel">Quitar</button>' : '') +
         '<button class="b" data-act="ptcancel">Cancelar</button></div></div>'
       : '<div class="actions"><button class="b primary" data-act="ptadd">' + (addingPunto ? 'Toca el mapa…' : '+ Agregar punto') + '</button></div>' +
         '<p class="muted">Arrastra un punto en el mapa para moverlo. Tócalo para cambiar su nombre.</p>') +
-      DB.Puntos.slice().sort((a, b) => a.letra.localeCompare(b.letra)).map(x => '<div class="list-item"><div><b>' + esc(x.letra) + '</b> – ' + esc(x.nombre) + '</div></div>').join('');
+      ptList(DB.Puntos.filter(x => !archivados().has(x.id)), 'Archivar') +
+      (DB.Puntos.some(x => archivados().has(x.id)) ? '<h3>Archivados</h3><p class="muted">No salen en el mapa ni al planificar. Las salidas que ya los usan siguen mostrándolos.</p>' +
+        ptList(DB.Puntos.filter(x => archivados().has(x.id)), 'Restaurar') : '');
   } else {
     body = '<p>Pon la imagen del mapa de papel encima de las calles para ayudarte a asignar las manzanas. La imagen no se sube: solo se ve en este equipo.</p>' +
       '<label>Imagen</label><input type="file" accept="image/*" data-in="guiafile">' +
@@ -2051,12 +2071,18 @@ const ACT = {
   ptsave() {
     const letra = $('#pt-letra').value.trim().toUpperCase(), nombre = $('#pt-nombre').value.trim();
     if (!letra || !nombre) return toast('Pon la letra y el nombre.');
+    const dup = DB.Puntos.find(x => x.letra.toUpperCase() === letra && x.id !== editSel.id);
+    if (dup) return toast('Ya hay un punto con la letra ' + letra + (archivados().has(dup.id) ? ' (archivado)' : '') + '. Usa otra letra.');
     const old = DB.Puntos.find(x => x.id === editSel.id);
     const p = old ? { ...old, letra, nombre } : { id: uid(), letra, nombre, lat: editSel.lat, lng: editSel.lng };
     editSel = null;
     stage('Puntos', p);
   },
-  ptdel() { const id = editSel.id; editSel = null; stageRemove('Puntos', id); },
+  ptdel() {
+    if (!confirm('¿Quitar este punto para siempre? Las salidas que lo usan ya no mostrarán su nombre ni “Cómo llegar”. Si ya no se usa, mejor archívalo.')) return;
+    const id = editSel.id; editSel = null; stageRemove('Puntos', id);
+  },
+  ptarch(el) { const on = !archivados().has(el.dataset.id); editSel = null; setArchivado(el.dataset.id, on); },
   ptcancel() { editSel = null; renderAll(); },
   guiaadj() { setGuideAdjust(!guideAdjust); renderAll(); },
   guiasave() { stage('Config', { id: 'guia', valor: JSON.stringify(guide.corners()) }); },

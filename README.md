@@ -41,6 +41,7 @@ The Sheet enforces these rules, not only the page: without a conductor link or t
   - It counts as **assigned** from the first salida (or informe) that includes it after its previous completion. *Asignado a* lists that round's conductores.
   - Nothing new is entered for this: it all comes from the salidas and informes.
 - **Editar** (admin): label and reshape manzanas, add meeting points, **Conductores** (create and send their links), lay the paper map over the streets.
+  - **Puntos:** a meeting point no longer used can be **archived**: it leaves the map and the Planificar list, but salidas that already use it keep its name and Cómo llegar. **Restaurar** brings it back. Saved in the Config sheet.
   - **Áreas:** for parts of the territory that are apart (e.g. an isolated territory in another neighborhood). The main area starts as "Territorios"; add others and assign territories to them. With two or more areas that have manzanas, the map gets a switch to jump between them (for everyone), and the app opens on the area last chosen. Saved in the Config sheet, so no Apps Script change was needed.
 - **Installable:**
   - Android Chrome shows **📲 Instalar la app** on the Mapa tab.
