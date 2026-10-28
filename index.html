@@ -189,6 +189,7 @@
   .s13-page h1 { text-align:center; font-size:14pt; margin:2mm 0 5mm; white-space:normal; }
   .s13-anio { font-weight:bold; font-size:11pt; margin-bottom:3mm; }
   .s13-anio u { display:inline-block; min-width:22mm; text-align:center; }
+  .s13-rango { font-weight:normal; }
   .s13-page table { width:100%; border-collapse:collapse; table-layout:fixed; border:2.5px solid #000; }
   .s13-page th, .s13-page td { border:1px solid #000; padding:0 2px; height:5mm; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:8pt; }
   .s13-page th { background:#e3e3e3; color:#555; font-weight:normal; white-space:normal; line-height:1.1; height:auto; padding:1px; font-size:7.5pt; }
@@ -237,7 +238,7 @@
 <script src="manzanas.js"></script>
 <script>
 // ---------- settings ----------
-const VERSION = '18 · 28/10/2026'; // shown at the bottom of Editar; bump when changing this file
+const VERSION = '19 · 28/10/2026'; // shown at the bottom of Editar; bump when changing this file
 const PALETTE = ['#fff27a','#f7a8c8','#f9b26b','#ffd6b3','#b9dd8f','#80e0e8','#bba0ec','#a9c8f0','#d0d0d0','#f3df5a','#eaa3f2','#a3dcbc'];
 const PLAZA = [-17.794426, -63.134013];
 // Rough placement of the paper map over the streets: top-left, top-right, bottom-left corners.
@@ -1529,7 +1530,7 @@ function s13Html(anio) {
   };
   const cols = '<colgroup><col style="width:7%"><col style="width:12%">' + '<col style="width:10.125%">'.repeat(8) + '</colgroup>';
   return pages.map(p => '<section class="s13-page"><h1>REGISTRO DE ASIGNACIÓN DE TERRITORIO</h1>' +
-    '<div class="s13-anio">Año de servicio: <u>' + anio + '</u></div>' +
+    '<div class="s13-anio">Año de servicio: <u>' + anio + '</u> <span class="s13-rango">(septiembre de ' + (anio - 1) + ' a agosto de ' + anio + ')</span></div>' +
     '<table>' + cols + head + p.concat(Array(20 - p.length).fill(null)).map(fila).join('') + '</table>' +
     '<p class="s13-nota">*Cuando comience una nueva página, anote en esta columna la última fecha en que los territorios se completaron.</p></section>').join('');
 }
