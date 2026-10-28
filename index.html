@@ -147,6 +147,9 @@
   .far .lbl-t span { font-size:20px; }
   .guide-img { position:absolute; left:0; top:0; transform-origin:0 0; max-width:none !important; max-height:none !important; pointer-events:none; }
   .leaflet-popup-content { font-size:14px; }
+  .hover-tip { font-size:13px; line-height:1.4; white-space:normal; width:max-content; max-width:280px; }
+  .hover-tip .actions { margin-top:6px; gap:4px; }
+  .hover-tip .muted { font-size:12px; }
   .hist { margin:6px 0 0; padding:0; list-style:none; font-size:13px; }
   .hist li { padding:3px 0; border-top:1px solid #eee; }
   body.adding #map, body.adding #map .leaflet-interactive { cursor:crosshair !important; }
@@ -243,7 +246,7 @@
 <script src="manzanas.js"></script>
 <script>
 // ---------- settings ----------
-const VERSION = '23 · 28/10/2026'; // shown at the bottom of Editar; bump when changing this file
+const VERSION = '25 · 28/10/2026'; // shown at the bottom of Editar; bump when changing this file
 const PALETTE = ['#fff27a','#f7a8c8','#f9b26b','#ffd6b3','#b9dd8f','#80e0e8','#bba0ec','#a9c8f0','#d0d0d0','#f3df5a','#eaa3f2','#a3dcbc'];
 const PLAZA = [-17.794426, -63.134013];
 // Rough placement of the paper map over the streets: top-left, top-right, bottom-left corners.
@@ -682,6 +685,8 @@ function faltanBox() {
  * The n manzanas a salida could take: those longest without being completed (never completed first), kept close
  * together and, when a punto is chosen, close to it. Leaves out manzanas already in another upcoming salida, and
  * those in "excluir" (already suggested, so "Otra sugerencia" gives different ones).
+ * With "Solo un territorio" (sugUnTerr) it takes one territory, the one longest without being completed, and only
+ * goes on to the nearest territory if more manzanas are asked for than it has; there, recent work doesn't matter.
  */
 function sugerencia(n, excluir) {
   const hoy = ymd(new Date());
@@ -691,31 +696,53 @@ function sugerencia(n, excluir) {
   const ll = b => L.latLng(centroid(b.coords));
   const cerca = pll && BL.length ? BL.slice().sort((a, b) => pll.distanceTo(ll(a)) - pll.distanceTo(ll(b)))[0] : null;
   const area = cerca ? areaDe(cerca.t) : areaActual(); // the punto's area, or the one shown on the map
-  let cands = BL.filter(b => areaDe(b.t) === area && !ocupadas.has(b.id) && !excluir.includes(b.id) && (!sugSinNunca || lastDone(b.t)));
-  const viejas = cands.filter(b => !COMP[b.id] || daysSince(COMP[b.id]) > RECIENTE);
-  if (viejas.length >= n) cands = viejas; // manzanas completed in the last weeks only if there aren't enough others
-  if (!cands.length) return [];
-  const days = b => COMP[b.id] ? daysSince(COMP[b.id]) : Infinity;
-  const maxD = Math.max(30, ...cands.map(days).filter(isFinite));
-  const age = b => isFinite(days(b)) ? days(b) / maxD : 1; // 0 = just completed … 1 = the oldest (or never completed)
+  const libres = BL.filter(b => areaDe(b.t) === area && !ocupadas.has(b.id) && (!sugSinNunca || lastDone(b.t)));
   const M = 500; // meters away that weigh as much as the whole range of ages
-  const first = cands.map(b => ({ b, sc: age(b) - (pll ? pll.distanceTo(ll(b)) / M : 0) })).sort((x, y) => y.sc - x.sc);
-  const picked = [first[0].b];
-  while (picked.length < Math.min(n, cands.length)) {
-    let best = null, bestSc = -Infinity;
-    cands.forEach(b => {
-      if (picked.includes(b)) return;
-      const near = Math.min(...picked.map(x => ll(x).distanceTo(ll(b))));
-      const sc = age(b) - near / M - (pll ? pll.distanceTo(ll(b)) / M : 0);
-      if (sc > bestSc) { bestSc = sc; best = b; }
-    });
-    picked.push(best);
+  const scale = (days, list) => { const m = Math.max(30, ...list.map(days).filter(isFinite)); return x => isFinite(days(x)) ? days(x) / m : 1; };
+  const bdays = b => COMP[b.id] ? daysSince(COMP[b.id]) : Infinity;
+  const age = scale(bdays, libres); // 0 = just completed … 1 = the oldest (or never completed)
+  /** Adds up to k manzanas from "list", oldest first, each close to those already picked (and to the punto). */
+  const greedy = (list, k, picked) => {
+    const out = [];
+    while (out.length < k && out.length < list.length) {
+      let best = null, bestSc = -Infinity;
+      list.forEach(b => {
+        if (out.includes(b)) return;
+        const all = picked.concat(out);
+        const near = all.length ? Math.min(...all.map(x => ll(x).distanceTo(ll(b)))) : 0;
+        const sc = age(b) - near / M - (pll ? pll.distanceTo(ll(b)) / M : 0);
+        if (sc > bestSc) { bestSc = sc; best = b; }
+      });
+      out.push(best);
+    }
+    return out;
+  };
+  if (!sugUnTerr) {
+    let cands = libres.filter(b => !excluir.includes(b.id));
+    const viejas = cands.filter(b => !COMP[b.id] || daysSince(COMP[b.id]) > RECIENTE);
+    if (viejas.length >= n) cands = viejas; // manzanas completed in the last weeks only if there aren't enough others
+    return greedy(cands, n, []).map(b => b.id);
+  }
+  // One territory at a time: the first by how long since it was completed (and closeness to the punto), then the nearest.
+  const porT = {};
+  libres.forEach(b => (porT[b.t] = porT[b.t] || []).push(b));
+  const tll = t => L.latLng(centroid(porT[t].map(b => centroid(b.coords))));
+  const tage = scale(t => lastDone(t) ? daysSince(lastDone(t)) : Infinity, Object.keys(porT));
+  const yaVistos = new Set(excluir.map(id => BYID[id] && String(BYID[id].t)));
+  let quedan = Object.keys(porT).filter(t => !yaVistos.has(t));
+  const picked = [];
+  while (picked.length < n && quedan.length) {
+    const from = picked.length ? L.latLng(centroid(picked.map(b => centroid(b.coords)))) : pll;
+    const t = quedan.slice().sort((a, b) => (tage(b) - (from ? from.distanceTo(tll(b)) / M : 0)) - (tage(a) - (from ? from.distanceTo(tll(a)) / M : 0)))[0];
+    picked.push(...greedy(porT[t], n - picked.length, picked));
+    quedan = quedan.filter(x => x !== t);
   }
   return picked.map(b => b.id);
 }
 const RECIENTE = 21; // days: a manzana completed more recently than this isn't suggested
 let sugN = +store.get('predi-sugn') || 4;
 let sugSinNunca = store.get('predi-sug-sinnunca') === '1'; // leave out territories never completed (e.g. no history yet)
+let sugUnTerr = store.get('predi-sug-unterr') === '1'; // suggest from one territory (and the nearest, if more are asked for)
 /**
  * Replaces the salida's manzanas with a suggestion. otra: different manzanas from the ones suggested before (starting
  * over when none are left). plan.sug remembers what was suggested, until the selection is changed by hand.
@@ -968,9 +995,47 @@ function highlightSet() {
   return null;
 }
 
+// Planificar on a computer: hovering a manzana shows how it stands, with buttons. The bubble stays put so the mouse
+// can reach it (crossing another manzana on the way doesn't replace it), and goes away once the mouse leaves both.
+const PUEDE_HOVER = matchMedia('(hover: hover) and (pointer: fine)').matches;
+const hoverTip = L.tooltip({ direction: 'top', offset: [0, -12], className: 'hover-tip', opacity: 1, interactive: true });
+let tipFor = null, tipTimer = null, overTip = false;
+function tipShow(b, latlng) {
+  if (overTip || tipFor === b.id) return clearTimeout(tipTimer);
+  clearTimeout(tipTimer);
+  tipTimer = setTimeout(() => {
+    if (overTip) return;
+    hoverTip.setLatLng(latlng).setContent(hoverInfo(b)).addTo(map);
+    tipFor = b.id;
+    const el = hoverTip.getElement();
+    if (!el._tip) { // once per bubble element: keep it open while the mouse is on it
+      el._tip = true;
+      el.addEventListener('mouseenter', () => { overTip = true; clearTimeout(tipTimer); });
+      el.addEventListener('mouseleave', () => { overTip = false; tipHide(); });
+      L.DomEvent.disableClickPropagation(el);
+    }
+  }, tipFor ? 250 : 80);
+}
+function tipHide() {
+  clearTimeout(tipTimer);
+  tipTimer = setTimeout(() => { if (!overTip) { hoverTip.remove(); tipFor = null; } }, 300);
+}
+function hoverInfo(b) {
+  const next = nextSalidaFor(b.id), nvs = casasDe(b.id).length;
+  return '<b>' + esc(bName(b)) + '</b>' +
+    '<div>' + (COMP[b.id] ? '✓ Completada ' + ago(COMP[b.id]) + ' <span class="muted">(' + fmt(COMP[b.id]) + ')</span>' : 'Nunca completada') + '</div>' +
+    (PARC[b.id] ? '<div>◐ ' + esc(parcialText(b.id)) + '</div>' : '') +
+    (next ? '<div>📅 En la salida del ' + esc(when(next)) + '</div>' : '') +
+    (nvs ? '<div>🚫 ' + nvs + (nvs === 1 ? ' casa' : ' casas') + ' que no se visita' + (nvs === 1 ? '' : 'n') + '</div>' : '') +
+    '<div class="actions"><button class="b small primary" data-act="tiptoggle" data-id="' + b.id + '">' + (plan.bloques.includes(b.id) ? '− Quitar de la salida' : '＋ Agregar a la salida') + '</button>' +
+    '<button class="b small" data-act="bhist" data-id="' + b.id + '">📜 Historial</button>' +
+    '<button class="b small" data-act="thist" data-v="' + b.t + '">📜 Territorio ' + b.t + '</button></div>';
+}
+
 function renderMap() {
   areaCtl.refresh();
   if (shapeLayer) return; // don't redraw while a shape is being edited
+  hoverTip.remove(); tipFor = null; overTip = false; clearTimeout(tipTimer);
   gBloques.clearLayers(); gTerr.clearLayers(); gPuntos.clearLayers(); gManzanas.clearLayers(); gTemp.clearLayers();
   const hi = highlightSet();
   const sat = base === 'satelite';
@@ -990,6 +1055,10 @@ function renderMap() {
     const nvs = casasDe(b.id).length;
     poly.bindTooltip(b.n + (r ? ' ' + ESTADO_ICON[r.estado] : byStatus && PARC[b.id] ? ' ◐' : '') + (nvs ? '<span class="nv-b" title="No visitar">🚫' + (nvs > 1 ? nvs : '') + '</span>' : ''), { permanent: true, direction: 'center', className: 'lbl-b' });
     poly.on('click', e => onBlockClick(b, e));
+    if (PUEDE_HOVER && tab === 'planificar' && !nv && !verBloque && verTerr == null) {
+      poly.on('mouseover mousemove', e => tipShow(b, e.latlng));
+      poly.on('mouseout', tipHide);
+    }
     poly._bid = b.id;
     gBloques.addLayer(poly);
   });
@@ -1565,8 +1634,10 @@ function planPanel() {
     '<label>Notas de la salida</label><input type="text" data-in="p-notas" value="' + esc(plan.notas) + '">' +
     '<div class="sug"><button class="b" data-act="sugerir">✨ ' + (plan.sug ? 'Otra sugerencia' : 'Sugerir manzanas') + '</button>' +
       '<span class="muted">cuántas</span><input type="number" min="1" max="30" data-in="sugn" value="' + sugN + '"></div>' +
+    '<label class="check"><input type="checkbox" data-in="sugunterr"' + (sugUnTerr ? ' checked' : '') + '> Solo un territorio (si piden más manzanas, sigue en el más cercano)</label>' +
     '<label class="check"><input type="checkbox" data-in="sugnunca"' + (sugSinNunca ? ' checked' : '') + '> Sin territorios nunca completados</label>' +
-    '<p class="muted">Sugiere las que llevan más tiempo sin completarse (no las completadas en las últimas 3 semanas), juntas' +
+    '<p class="muted">' + (sugUnTerr ? 'Sugiere el territorio que lleva más tiempo sin completarse (empezando por las manzanas que le faltan)' :
+      'Sugiere las que llevan más tiempo sin completarse (no las completadas en las últimas 3 semanas), juntas') +
       (plan.punto ? ' y cerca del punto ' + esc(plan.punto) + '.' : '. Elige antes el punto de salida para que queden cerca de él.') + '</p>' +
     '<label>Manzanas (' + sel.length + ') — puedes poner una nota a cada una</label>' +
     (sel.length ? sel.map(b => '<div class="sel-row"><button class="link" data-act="bhist" data-id="' + b.id + '" title="Ver el historial">' + bShort(b) + (PARC[b.id] ? ' ◐' : '') + '</button>' +
@@ -2068,6 +2139,12 @@ const ACT = {
     if (!map.getBounds().contains(c)) map.panTo(c);
   },
   bhistback() { verBloque = ''; renderAll(); },
+  tiptoggle(el) {
+    const i = plan.bloques.indexOf(el.dataset.id);
+    if (i >= 0) plan.bloques.splice(i, 1); else addToPlan([el.dataset.id]);
+    plan.sug = null;
+    renderAll();
+  },
   thist(el) {
     const t = +el.dataset.v;
     verTerr = t; verBloque = ''; showLogin = false; map.closePopup();
@@ -2224,6 +2301,7 @@ const INPUT = {
     if (plan.sug) aplicarSugerencia(false); // the suggestion follows the punto until it's changed by hand
     renderAll();
   },
+  sugunterr(el) { sugUnTerr = el.checked; store.set('predi-sug-unterr', sugUnTerr ? '1' : ''); if (plan.sug) aplicarSugerencia(false); renderAll(); },
   sugnunca(el) { sugSinNunca = el.checked; store.set('predi-sug-sinnunca', sugSinNunca ? '1' : ''); if (plan.sug) aplicarSugerencia(false); renderAll(); },
   sugn(el) { sugN = Math.max(1, Math.min(30, +el.value || 4)); store.set('predi-sugn', sugN); if (plan.sug) aplicarSugerencia(false); renderAll(); },
   'p-conductor'(el) { plan.conductor = el.value; },
@@ -2244,7 +2322,7 @@ const INPUT = {
   guiaop(el) { guide.setOpacity(+el.value); },
 };
 // "change" for controls that re-render or save; "input" for live text so typing never loses focus.
-const ON_CHANGE = ['inffecha', 'tcolor', 'guiafile', 'p-fecha', 'p-hora', 'p-punto', 's13anio', 'nvfile', 'arname', 'arterr', 'sugn', 'sugnunca'];
+const ON_CHANGE = ['inffecha', 'tcolor', 'guiafile', 'p-fecha', 'p-hora', 'p-punto', 's13anio', 'nvfile', 'arname', 'arterr', 'sugn', 'sugnunca', 'sugunterr'];
 
 function onAct(e) {
   const el = e.target.closest('[data-act]');
