@@ -106,8 +106,6 @@
   .terr-row.on { background:#eef2ff; }
   .legend { display:flex; flex-wrap:wrap; gap:6px 12px; font-size:13px; margin:8px 0; }
   .sw { display:inline-block; width:12px; height:12px; border-radius:3px; vertical-align:-1px; margin-right:4px; border:1px solid rgba(0,0,0,.25); }
-  .rangos { display:flex; align-items:center; gap:6px; flex-wrap:wrap; font-size:13px; }
-  .rangos input { width:64px; padding:4px 6px; }
   details summary { cursor:pointer; color:var(--accent); font-size:13px; margin:6px 0; }
   .done { color:#1e8e4e; } .part { color:#d9820b; } .not { color:#b42318; }
   #toast { position:fixed; left:50%; bottom:20px; transform:translateX(-50%); background:#1d2330; color:#fff; padding:9px 16px; border-radius:8px; font-size:14px; opacity:0; transition:opacity .2s; pointer-events:none; z-index:3000; max-width:90vw; }
@@ -234,10 +232,9 @@
 <script src="manzanas.js"></script>
 <script>
 // ---------- settings ----------
-const VERSION = '14 · 28/10/2026'; // shown at the bottom of Editar; bump when changing this file
+const VERSION = '15 · 28/10/2026'; // shown at the bottom of Editar; bump when changing this file
 const PALETTE = ['#fff27a','#f7a8c8','#f9b26b','#ffd6b3','#b9dd8f','#80e0e8','#bba0ec','#a9c8f0','#d0d0d0','#f3df5a','#eaa3f2','#a3dcbc'];
 const PLAZA = [-17.794426, -63.134013];
-const RANGOS_DEFAULT = { verde: 30, amarillo: 90 }; // days; editable in Planificar (saved in Config)
 // Rough placement of the paper map over the streets: top-left, top-right, bottom-left corners.
 const GUIA_DEFAULT = [[-17.79104, -63.14001], [-17.79005, -63.12651], [-17.80399, -63.13899]];
 const ESTADOS = { completo: 'Completo', parcial: 'Parcial', no: 'No se hizo' };
@@ -414,6 +411,8 @@ function setWho(w) {
 // SERVER is what the Sheet has; PEND holds map edits not yet sent. DB = SERVER with PEND applied.
 let SERVER = emptyDB(), PEND = { save: {}, remove: {} }, DB = emptyDB();
 let BL = [], BYID = {}, LAST = {}, TCOLOR = {}, CONFIG = {}, CICLOS = {}, HEATC = {};
+// Per manzana: last day it was completed, partial work since then, and its heat color (Planificar → Último trabajo).
+let COMP = {}, PARC = {}, BHEAT = {};
 let s13Anio = anioServicio(ymd(new Date()));
 let tab = 'hoy', colorBy = 'territorio', editSub = 'bloques', showLogin = false;
 let plan = newPlan();
@@ -492,7 +491,12 @@ function rebuild() {
   TCOLOR = Object.fromEntries(DB.Territorios.map(t => [t.id, t.color]));
   CONFIG = Object.fromEntries(DB.Config.map(c => [c.id, c.valor]));
   LAST = {};
-  sortedInformes().forEach(r => { if (r.estado !== 'no') LAST[r.bloque] = r; });
+  COMP = {}; PARC = {};
+  sortedInformes().forEach(r => {
+    if (r.estado !== 'no') LAST[r.bloque] = r;
+    if (r.estado === 'completo') { COMP[r.bloque] = r.fecha; delete PARC[r.bloque]; } else if (r.estado === 'parcial') PARC[r.bloque] = r.fecha;
+  });
+  BHEAT = rankHeat(Object.fromEntries(BL.map(b => [b.id, COMP[b.id] || ''])));
   CICLOS = territoryCycles();
   HEATC = heatColors();
   renderAll();
@@ -533,15 +537,22 @@ function territoryCycles() {
 }
 function lastDone(t) { const c = (CICLOS[t] || []).filter(x => x.fin).pop(); return c ? c.fin : ''; }
 function openCycle(t) { const c = (CICLOS[t] || []).slice(-1)[0]; return c && !c.fin ? c : null; }
-/** Territory → heat color, by rank of its last completion date (so the whole ramp is always used). */
-function heatColors() {
-  const fechas = [...new Set(Object.keys(CICLOS).map(lastDone).filter(Boolean))].sort().reverse(); // most recent first
+/**
+ * key → heat color by the rank of its date (so the whole ramp is always used): lightest = most recent,
+ * darkest = longest ago, gray = no date.
+ */
+function rankHeat(fechaDe) {
+  const fechas = [...new Set(Object.values(fechaDe).filter(Boolean))].sort().reverse(); // most recent first
   const out = {};
-  Object.keys(CICLOS).forEach(t => {
-    const i = fechas.indexOf(lastDone(t));
-    out[t] = i < 0 ? NEVER : HEAT[fechas.length > 1 ? Math.round(i / (fechas.length - 1) * (HEAT.length - 1)) : 0];
+  Object.keys(fechaDe).forEach(k => {
+    const i = fechas.indexOf(fechaDe[k]);
+    out[k] = i < 0 ? NEVER : HEAT[fechas.length > 1 ? Math.round(i / (fechas.length - 1) * (HEAT.length - 1)) : 0];
   });
   return out;
+}
+/** Territory → heat color by its last completion. */
+function heatColors() {
+  return rankHeat(Object.fromEntries(Object.keys(CICLOS).map(t => [t, lastDone(t)])));
 }
 /** Service year (Sept → Aug) a date belongs to: 2026-10-27 → 2027. */
 function anioServicio(s) { const y = +s.slice(0, 4); return +s.slice(5, 7) >= 9 ? y + 1 : y; }
@@ -597,16 +608,6 @@ function daysSince(s) { const [y, m, d] = s.split('-').map(Number); return Math.
 function ago(s) { const d = daysSince(s); return d <= 0 ? 'hoy' : d === 1 ? 'ayer' : 'hace ' + d + ' días'; }
 function sortedInformes() { return DB.Informes.slice().sort((a, b) => (a.fecha + a.creado).localeCompare(b.fecha + b.creado)); }
 function tColor(t) { return TCOLOR[t] || PALETTE[(t - 1 + PALETTE.length) % PALETTE.length]; }
-function rangos() {
-  return { verde: +CONFIG.dias_verde || RANGOS_DEFAULT.verde, amarillo: +CONFIG.dias_amarillo || RANGOS_DEFAULT.amarillo };
-}
-function statusColor(id) {
-  const r = LAST[id];
-  if (!r) return '#c4c4c4';
-  if (r.estado === 'parcial') return '#f39c12';
-  const d = daysSince(r.fecha), g = rangos();
-  return d <= g.verde ? '#2ecc71' : d <= g.amarillo ? '#f1c40f' : '#e74c3c';
-}
 function bName(b) { return b ? 'T' + b.t + ' · Manzana ' + b.n : '(manzana borrada)'; }
 function bShort(b) { return 'T' + b.t + '·M' + b.n; }
 function describe(ids) {
@@ -826,11 +827,11 @@ function renderMap() {
       color: sel ? '#c0392b' : unsaved[b.id] ? '#e67e22' : sat ? '#fff' : '#4a4a4a',
       weight: sel ? 3.5 : unsaved[b.id] ? 2.5 : sat ? 1.5 : 1,
       dashArray: unsaved[b.id] && !sel ? '6 4' : null,
-      fillColor: r ? ESTADO_COLOR[r.estado] : byStatus ? statusColor(b.id) : tab === 'registro' ? HEATC[b.t] : tColor(b.t),
+      fillColor: r ? ESTADO_COLOR[r.estado] : byStatus ? BHEAT[b.id] : tab === 'registro' ? HEATC[b.t] : tColor(b.t),
       fillOpacity: dim ? (sat ? 0.1 : 0.25) : sat ? 0.4 : 0.7,
     });
     const nvs = casasDe(b.id).length;
-    poly.bindTooltip(b.n + (r ? ' ' + ESTADO_ICON[r.estado] : '') + (nvs ? '<span class="nv-b" title="No visitar">🚫' + (nvs > 1 ? nvs : '') + '</span>' : ''), { permanent: true, direction: 'center', className: 'lbl-b' });
+    poly.bindTooltip(b.n + (r ? ' ' + ESTADO_ICON[r.estado] : byStatus && PARC[b.id] ? ' ◐' : '') + (nvs ? '<span class="nv-b" title="No visitar">🚫' + (nvs > 1 ? nvs : '') + '</span>' : ''), { permanent: true, direction: 'center', className: 'lbl-b' });
     poly.on('click', e => onBlockClick(b, e));
     poly._bid = b.id;
     gBloques.addLayer(poly);
@@ -1091,17 +1092,20 @@ function accountFooter() {
   return '<div class="acct">' + who + '<br>Versión ' + VERSION + '</div>';
 }
 
+/** The heat-map legend: the ramp with how long ago its two ends are, plus "never". */
+function heatLegend(fechas, reciente, antiguo, nunca) {
+  fechas = fechas.filter(Boolean).sort();
+  return (fechas.length ? '<div class="heat-bar" style="background:linear-gradient(to right,' + HEAT.join(',') + ')"></div>' +
+      '<div class="heat-ends"><span>' + reciente + ' (' + ago(fechas[fechas.length - 1]) + ')</span><span>' + antiguo + ' (' + ago(fechas[0]) + ')</span></div>' : '') +
+    '<div class="legend"><span><i class="sw" style="background:' + NEVER + '"></i>' + nunca + '</span></div>';
+}
+
 function colorControls() {
-  const g = rangos();
   return '<label>Colorear por</label><div class="seg">' +
     '<button data-act="color" data-v="territorio" class="' + (colorBy === 'territorio' ? 'on' : '') + '">Territorio</button>' +
     '<button data-act="color" data-v="estado" class="' + (colorBy === 'estado' ? 'on' : '') + '">Último trabajo</button></div>' +
-    (colorBy === 'estado' ? '<div class="legend">' +
-      '<span><i class="sw" style="background:#2ecc71"></i>Hasta ' + g.verde + ' días</span>' +
-      '<span><i class="sw" style="background:#f1c40f"></i>' + g.verde + '–' + g.amarillo + ' días</span>' +
-      '<span><i class="sw" style="background:#e74c3c"></i>Más de ' + g.amarillo + ' días</span>' +
-      '<span><i class="sw" style="background:#f39c12"></i>Quedó parcial</span>' +
-      '<span><i class="sw" style="background:#c4c4c4"></i>Nunca</span></div>' : '');
+    (colorBy === 'estado' ? '<p class="muted">Cada manzana según la última vez que se completó: más oscura, más tiempo sin predicarse. ' +
+      '◐ = tiene trabajo parcial después de eso.</p>' + heatLegend(Object.values(COMP), 'Más reciente', 'Hace más tiempo', 'Nunca completada') : '');
 }
 
 function salidaSummary(s) {
@@ -1284,18 +1288,19 @@ function informePanel() {
       '<div class="actions"><button class="b primary" data-act="enviar">' + (hay ? 'Guardar informe' : 'Enviar informe') + '</button></div>' : '');
 }
 
+/** Territories by their manzana that has gone longest without being completed ('' = one was never completed). */
 function territoryRows() {
   const by = {};
   BL.forEach(b => (by[b.t] = by[b.t] || []).push(b));
   return Object.keys(by).map(t => {
-    const bs = by[t];
-    const days = bs.map(b => LAST[b.id] ? daysSince(LAST[b.id].fecha) : Infinity);
-    return { t: +t, n: bs.length, oldest: Math.max(...days), parciales: bs.filter(b => LAST[b.id] && LAST[b.id].estado === 'parcial').length, ids: bs.map(b => b.id) };
-  }).sort((a, b) => b.oldest - a.oldest || a.t - b.t);
+    const bs = by[t], fechas = bs.map(b => COMP[b.id] || '').sort();
+    return { t: +t, n: bs.length, oldest: fechas[0], nunca: fechas.filter(f => !f).length, parciales: bs.filter(b => PARC[b.id]).length, ids: bs.map(b => b.id) };
+  }).sort((a, b) => a.oldest.localeCompare(b.oldest) || b.nunca - a.nunca || a.t - b.t);
 }
 
 function planPanel() {
-  const hoy = ymd(new Date()), g = rangos();
+  const hoy = ymd(new Date()), trows = territoryRows();
+  const theat = rankHeat(Object.fromEntries(trows.map(r => [r.t, r.oldest])));
   const prox = DB.Salidas.filter(s => s.fecha >= hoy && !informada(s)).sort(bySalidaTime);
   const recientes = DB.Salidas.filter(s => (s.fecha < hoy || informada(s)) && daysSince(s.fecha) <= 21).sort((a, b) => bySalidaTime(b, a));
   const status = s => salidaBlocks(s).map(id => {
@@ -1308,8 +1313,7 @@ function planPanel() {
     '<div style="white-space:nowrap">' + (s.fecha >= hoy ? '<button class="b small" data-act="ver" data-id="' + s.id + '">Ver</button> ' : '') + '<button class="b small" data-act="planedit" data-id="' + s.id + '">Editar</button> ' +
     '<button class="b small danger" data-act="plandel" data-id="' + s.id + '">Borrar</button></div></div>';
   const sel = plan.bloques.map(id => BYID[id]).filter(Boolean).sort((a, b) => a.t - b.t || a.n - b.n);
-  const tdays = d => 'más atrasada: ' + (d === Infinity ? 'nunca' : d <= 0 ? 'hoy' : 'hace ' + d + ' días');
-  const tcolor = d => d === Infinity ? '#c4c4c4' : d <= g.verde ? '#2ecc71' : d <= g.amarillo ? '#f1c40f' : '#e74c3c';
+  const tdays = r => r.nunca === r.n ? 'nunca completado' : r.nunca ? r.nunca + ' nunca completa' + (r.nunca > 1 ? 's' : '') : 'más atrasada: ' + ago(r.oldest);
   return '<h2>' + (plan.id ? 'Editando salida' : 'Planificar salida') + '</h2>' +
     '<p class="muted">Toca manzanas en el mapa para elegirlas. Toca el número grande de un territorio para elegirlo entero.</p>' +
     '<div class="grid2"><div><label>Fecha</label><input type="date" data-in="p-fecha" value="' + plan.fecha + '"></div>' +
@@ -1328,14 +1332,10 @@ function planPanel() {
     '<h3>Próximas salidas</h3>' + (prox.length ? prox.map(item).join('') : '<p class="muted">Ninguna.</p>') +
     '<h3>Territorios por tiempo sin trabajar</h3>' + colorControls() +
     '<p class="muted">' + BL.length + ' manzanas · ' + new Set(BL.map(b => b.t)).size + ' territorios · ' +
-      BL.filter(b => !LAST[b.id] || daysSince(LAST[b.id].fecha) > g.amarillo).length + ' sin trabajar hace más de ' + g.amarillo + ' días · ' +
-      BL.filter(b => LAST[b.id] && LAST[b.id].estado === 'parcial').length + ' parciales</p>' +
-    '<details><summary>Cambiar los rangos de días</summary><div class="rangos">Verde hasta <input type="number" min="1" id="r-verde" value="' + g.verde + '"> días · ' +
-      'amarillo hasta <input type="number" min="1" id="r-amarillo" value="' + g.amarillo + '"> días · después rojo ' +
-      '<button class="b small" data-act="rangos">Guardar</button></div></details>' +
-    '<p class="muted">Según la manzana que lleva más tiempo sin trabajar. Toca “Elegir” para agregar el territorio entero.</p>' +
-    territoryRows().map(r => '<div class="terr-row' + (r.ids.every(id => plan.bloques.includes(id)) ? ' on' : '') + '"><i class="sw" style="background:' + tcolor(r.oldest) + '"></i>' +
-      '<span class="grow"><b>T' + r.t + '</b> · ' + r.n + ' manz. · ' + tdays(r.oldest) + (r.parciales ? ' · ' + r.parciales + ' parcial' + (r.parciales > 1 ? 'es' : '') : '') + '</span>' +
+      BL.filter(b => !COMP[b.id]).length + ' nunca completadas · ' + BL.filter(b => PARC[b.id]).length + ' con trabajo parcial pendiente</p>' +
+    '<p class="muted">Según la manzana que lleva más tiempo sin completarse. Toca “Elegir” para agregar el territorio entero.</p>' +
+    trows.map(r => '<div class="terr-row' + (r.ids.every(id => plan.bloques.includes(id)) ? ' on' : '') + '"><i class="sw" style="background:' + theat[r.t] + '"></i>' +
+      '<span class="grow"><b>T' + r.t + '</b> · ' + r.n + ' manz. · ' + tdays(r) + (r.parciales ? ' · ' + r.parciales + ' parcial' + (r.parciales > 1 ? 'es' : '') : '') + '</span>' +
       '<button class="b small" data-act="tzoom" data-v="' + r.t + '">Ver</button><button class="b small" data-act="tpick" data-v="' + r.t + '">Elegir</button></div>').join('') +
     '<h3>Últimas 3 semanas</h3>' + (recientes.length ? '<p class="muted">✓ completo · ◐ parcial · ✕ no se hizo · — sin informe</p>' + recientes.map(item).join('') : '<p class="muted">Ninguna.</p>');
 }
@@ -1351,7 +1351,7 @@ function terrStatus(t) {
 function registroPanel() {
   const ts = Object.keys(CICLOS).map(Number);
   const rows = ts.sort((a, b) => lastDone(a).localeCompare(lastDone(b)) || a - b); // never completed first, then oldest
-  const fechas = ts.map(lastDone).filter(Boolean).sort();
+  const fechas = ts.map(lastDone);
   const hecho = c => esc(fmtCorto(c.inicio)) + ' → ' + (c.fin ? '<span class="done">✓ ' + esc(fmtCorto(c.fin)) + '</span>' : '<span class="muted">sin completar</span>') +
     (c.nombres.length ? ' · ' + esc(c.nombres.join(', ')) : '');
   const hoyAnio = anioServicio(ymd(new Date()));
@@ -1362,9 +1362,7 @@ function registroPanel() {
     '<p class="muted">Un territorio queda <b>completado</b> el día en que la última de sus manzanas recibe un informe “Completo”. ' +
     'Se cuenta como <b>asignado</b> desde la primera salida (o informe) que lo incluye después de eso.</p>' +
     '<h3>Mapa de calor</h3>' +
-    (fechas.length ? '<div class="heat-bar" style="background:linear-gradient(to right,' + HEAT.join(',') + ')"></div>' +
-      '<div class="heat-ends"><span>Más reciente (' + ago(fechas[fechas.length - 1]) + ')</span><span>Hace más tiempo (' + ago(fechas[0]) + ')</span></div>' : '') +
-    '<div class="legend"><span><i class="sw" style="background:' + NEVER + '"></i>Nunca completado</span></div>' +
+    heatLegend(fechas, 'Más reciente', 'Hace más tiempo', 'Nunca completado') +
     '<p class="muted">Toca una manzana en el mapa para ver su territorio.</p>' +
     '<h3>Imprimir el registro (S-13)</h3>' +
     '<label>Año de servicio</label><div class="sel-row"><select data-in="s13anio">' +
@@ -1816,12 +1814,6 @@ const ACT = {
   nvfoto(el) { const c = DB.NoVisitar.find(x => x.id === el.dataset.id); if (c) return openFoto(c); },
   s13print() { window.print(); },
   s13close() { $('#s13').classList.remove('show'); document.body.classList.remove('s13'); },
-  async rangos() {
-    const verde = +$('#r-verde').value, amarillo = +$('#r-amarillo').value;
-    if (!(verde > 0 && amarillo > verde)) return toast('El amarillo tiene que ser mayor que el verde.');
-    await saveRows('Config', [{ id: 'dias_verde', valor: verde }, { id: 'dias_amarillo', valor: amarillo }]);
-    toast('Rangos guardados.');
-  },
   async plansave() {
     if (!plan.fecha) return toast('Elige la fecha.');
     if (!plan.bloques.length) return toast('Elige al menos una manzana en el mapa.');
