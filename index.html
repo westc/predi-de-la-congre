@@ -160,6 +160,34 @@
   #share .box { background:#fff; border-radius:12px; max-width:520px; width:100%; max-height:100%; overflow:auto; padding:12px; }
   #share img { width:100%; border-radius:8px; border:1px solid var(--line); display:block; }
   #share textarea { width:100%; font:13px/1.35 system-ui,sans-serif; margin-top:8px; }
+  .heat-bar { height:10px; border-radius:3px; border:1px solid rgba(0,0,0,.15); margin-top:8px; }
+  .heat-ends { display:flex; justify-content:space-between; gap:8px; font-size:12px; color:var(--muted); }
+  .terr-row details summary { margin:2px 0 0; }
+  /* S-13 report (Registro → Imprimir): a copy of the paper form, one page per 20 rows */
+  #s13 { position:fixed; inset:0; z-index:2800; background:#e9ebef; overflow:auto; display:none; }
+  #s13.show { display:block; }
+  .s13-bar { position:sticky; top:0; left:0; display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:8px 12px; background:var(--brand); color:#fff; font-size:14px; }
+  .s13-bar .grow { flex:1; }
+  .s13-page { background:#fff; color:#000; width:200mm; margin:12px auto; padding:10mm; box-shadow:0 2px 10px rgba(0,0,0,.2); font:9pt Arial,Helvetica,sans-serif; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  .s13-page h1 { text-align:center; font-size:14pt; margin:2mm 0 5mm; white-space:normal; }
+  .s13-anio { font-weight:bold; font-size:11pt; margin-bottom:3mm; }
+  .s13-anio u { display:inline-block; min-width:22mm; text-align:center; }
+  .s13-page table { width:100%; border-collapse:collapse; table-layout:fixed; border:2.5px solid #000; }
+  .s13-page th, .s13-page td { border:1px solid #000; padding:0 2px; height:5mm; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:8pt; }
+  .s13-page th { background:#e3e3e3; color:#555; font-weight:normal; white-space:normal; line-height:1.1; height:auto; padding:1px; font-size:7.5pt; }
+  .s13-page thead th.big { font-size:9pt; }
+  .s13-page tbody { border-top:2.5px solid #000; }
+  .s13-page .gs { border-left:2.5px solid #000; }
+  .s13-nota { font-size:8pt; margin:2mm 0 0; }
+  @media print {
+    @page { margin:10mm; }
+    html, body { height:auto; display:block; background:#fff; }
+    body.s13 > :not(#s13) { display:none !important; }
+    #s13 { position:static; overflow:visible; background:#fff; }
+    .s13-bar { display:none; }
+    .s13-page { width:auto; margin:0; padding:0; box-shadow:none; break-after:page; }
+    .s13-page:last-child { break-after:auto; }
+  }
 </style>
 </head>
 <body>
@@ -178,6 +206,7 @@
 <div id="saving"><div class="box"><div class="spin"></div><span id="saving-msg">Guardando…</span></div></div>
 <div id="toast"></div>
 <div id="share"><div class="box"></div></div>
+<div id="s13"></div>
 <div id="setup"><div class="box">
   <h2>Territorios · La Villa</h2>
   <p>Para usar la app, escanea con la cámara del celular el <b>código QR</b> que te dio el encargado del territorio.</p>
@@ -190,13 +219,16 @@
 <script src="manzanas.js"></script>
 <script>
 // ---------- settings ----------
-const VERSION = '10 · 27/10/2026'; // shown at the bottom of Editar; bump when changing this file
+const VERSION = '11 · 27/10/2026'; // shown at the bottom of Editar; bump when changing this file
 const PALETTE = ['#fff27a','#f7a8c8','#f9b26b','#ffd6b3','#b9dd8f','#80e0e8','#bba0ec','#a9c8f0','#d0d0d0','#f3df5a','#eaa3f2','#a3dcbc'];
 const PLAZA = [-17.794426, -63.134013];
 const RANGOS_DEFAULT = { verde: 30, amarillo: 90 }; // days; editable in Planificar (saved in Config)
 // Rough placement of the paper map over the streets: top-left, top-right, bottom-left corners.
 const GUIA_DEFAULT = [[-17.79104, -63.14001], [-17.79005, -63.12651], [-17.80399, -63.13899]];
 const ESTADOS = { completo: 'Completo', parcial: 'Parcial', no: 'No se hizo' };
+// Registro heat map: one blue, light (completed most recently) to dark (longest ago). Never completed is gray.
+const HEAT = ['#cde2fb', '#b7d3f6', '#9ec5f4', '#86b6ef', '#6da7ec', '#5598e7', '#3987e5', '#2a78d6', '#256abf', '#1c5cab', '#184f95', '#104281', '#0d366b'];
+const NEVER = '#c4c4c4';
 const TABLE_NAMES = ['Bloques', 'Territorios', 'Puntos', 'Salidas', 'Informes', 'Config', 'Conductores'];
 
 // ---------- storage helpers ----------
@@ -310,8 +342,8 @@ async function removeRows(table, ids) { setDB(await busy(api('remove', table, id
 
 // ---------- who is using the app ----------
 // publicador: anyone with the app link · conductor: opened a personal link · admin: entered the PIN.
-const TABS = { publicador: ['hoy'], conductor: ['hoy', 'informe'], admin: ['hoy', 'informe', 'planificar', 'editar'] };
-const TAB_NAMES = { hoy: 'Hoy', informe: 'Informe', planificar: 'Planificar', editar: 'Editar' };
+const TABS = { publicador: ['hoy'], conductor: ['hoy', 'informe'], admin: ['hoy', 'informe', 'planificar', 'registro', 'editar'] };
+const TAB_NAMES = { hoy: 'Hoy', informe: 'Informe', planificar: 'Planificar', registro: 'Registro', editar: 'Editar' };
 let pin = store.get('predi-pin-' + KEY) || '';
 let ckey = CONDUCTOR_KEY;
 // The last known role, so the right screens show at once (and offline) before the Sheet answers.
@@ -335,7 +367,8 @@ function setWho(w) {
 // ---------- state ----------
 // SERVER is what the Sheet has; PEND holds map edits not yet sent. DB = SERVER with PEND applied.
 let SERVER = emptyDB(), PEND = { save: {}, remove: {} }, DB = emptyDB();
-let BL = [], BYID = {}, LAST = {}, TCOLOR = {}, CONFIG = {};
+let BL = [], BYID = {}, LAST = {}, TCOLOR = {}, CONFIG = {}, CICLOS = {}, HEATC = {};
+let s13Anio = anioServicio(ymd(new Date()));
 let tab = 'hoy', colorBy = 'territorio', editSub = 'bloques', showLogin = false;
 let plan = newPlan();
 let infFecha = ymd(new Date()), infForm = {};
@@ -389,8 +422,58 @@ function rebuild() {
   CONFIG = Object.fromEntries(DB.Config.map(c => [c.id, c.valor]));
   LAST = {};
   sortedInformes().forEach(r => { if (r.estado !== 'no') LAST[r.bloque] = r; });
+  CICLOS = territoryCycles();
+  HEATC = heatColors();
   renderAll();
 }
+
+// ---------- territory record (S-13) ----------
+/**
+ * Each time a territory was worked through, per territory number, oldest first:
+ * { t, inicio, fin, nombres, hechas }. It starts with the first salida (up to today) or informe that touches
+ * the territory, and ends on the day the last of its manzanas gets a "Completo" (fin = '' while still open).
+ */
+function territoryCycles() {
+  const hoy = ymd(new Date()), size = {}, out = {}, open = {};
+  BL.forEach(b => { size[b.t] = (size[b.t] || 0) + 1; out[b.t] = []; });
+  // Same day: salidas before informes, so a salida on the day a territory gets finished counts for that round.
+  const ev = DB.Salidas.filter(s => s.fecha <= hoy).map(s => ({ fecha: s.fecha, k: '0', s }))
+    .concat(DB.Informes.filter(r => BYID[r.bloque]).map(r => ({ fecha: r.fecha, k: '1' + (r.creado || ''), r })))
+    .sort((a, b) => (a.fecha + a.k).localeCompare(b.fecha + b.k));
+  const start = (t, fecha) => open[t] || (open[t] = { t, inicio: fecha, fin: '', conductores: [], quienes: [], hechas: new Set() });
+  const add = (list, n) => { n = (n || '').trim(); if (n && !list.includes(n)) list.push(n); };
+  ev.forEach(e => {
+    if (e.s) {
+      new Set(salidaBlocks(e.s).filter(id => BYID[id]).map(id => BYID[id].t)).forEach(t => add(start(t, e.fecha).conductores, e.s.conductor));
+      return;
+    }
+    const r = e.r, t = BYID[r.bloque].t;
+    if (r.estado === 'no' && !open[t]) return; // "No se hizo" alone doesn't start a round
+    const c = start(t, e.fecha);
+    add(c.quienes, r.quien);
+    if (r.estado !== 'completo') return;
+    c.hechas.add(r.bloque);
+    if (c.hechas.size < size[t]) return;
+    c.fin = e.fecha; out[t].push(c); delete open[t];
+  });
+  Object.values(open).forEach(c => out[c.t].push(c));
+  Object.values(out).flat().forEach(c => { c.nombres = c.conductores.length ? c.conductores : c.quienes; });
+  return out;
+}
+function lastDone(t) { const c = (CICLOS[t] || []).filter(x => x.fin).pop(); return c ? c.fin : ''; }
+function openCycle(t) { const c = (CICLOS[t] || []).slice(-1)[0]; return c && !c.fin ? c : null; }
+/** Territory → heat color, by rank of its last completion date (so the whole ramp is always used). */
+function heatColors() {
+  const fechas = [...new Set(Object.keys(CICLOS).map(lastDone).filter(Boolean))].sort().reverse(); // most recent first
+  const out = {};
+  Object.keys(CICLOS).forEach(t => {
+    const i = fechas.indexOf(lastDone(t));
+    out[t] = i < 0 ? NEVER : HEAT[fechas.length > 1 ? Math.round(i / (fechas.length - 1) * (HEAT.length - 1)) : 0];
+  });
+  return out;
+}
+/** Service year (Sept → Aug) a date belongs to: 2026-10-27 → 2027. */
+function anioServicio(s) { const y = +s.slice(0, 4); return +s.slice(5, 7) >= 9 ? y + 1 : y; }
 
 function pendingCount() {
   let n = 0;
@@ -438,6 +521,7 @@ function fmt(s) {
   const dias = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
   return dias[new Date(y, m - 1, d).getDay()] + ' ' + String(d).padStart(2, '0') + '/' + String(m).padStart(2, '0') + '/' + y;
 }
+function fmtCorto(s) { if (!s) return ''; const [y, m, d] = s.split('-'); return d + '/' + m + '/' + y.slice(2); }
 function daysSince(s) { const [y, m, d] = s.split('-').map(Number); return Math.floor((Date.now() - new Date(y, m - 1, d)) / 864e5); }
 function ago(s) { const d = daysSince(s); return d <= 0 ? 'hoy' : d === 1 ? 'ayer' : 'hace ' + d + ' días'; }
 function sortedInformes() { return DB.Informes.slice().sort((a, b) => (a.fecha + a.creado).localeCompare(b.fecha + b.creado)); }
@@ -595,7 +679,7 @@ function renderMap() {
       color: sel ? '#c0392b' : unsaved[b.id] ? '#e67e22' : sat ? '#fff' : '#4a4a4a',
       weight: sel ? 3.5 : unsaved[b.id] ? 2.5 : sat ? 1.5 : 1,
       dashArray: unsaved[b.id] && !sel ? '6 4' : null,
-      fillColor: byStatus ? statusColor(b.id) : tColor(b.t),
+      fillColor: byStatus ? statusColor(b.id) : tab === 'registro' ? HEATC[b.t] : tColor(b.t),
       fillOpacity: dim ? (sat ? 0.1 : 0.25) : sat ? 0.4 : 0.7,
     });
     poly.bindTooltip(String(b.n), { permanent: true, direction: 'center', className: 'lbl-b' });
@@ -654,6 +738,8 @@ function onBlockClick(b, e) {
       (next ? '<div>Asignada: ' + when(next) + '</div>' + (nextNote ? '<div class="pin-note">📌 ' + esc(nextNote) + '</div>' : '') : '') +
       (hist.length ? '<ul class="hist">' + hist.map(r => '<li>' + informeIcon(r) + ' ' + fmt(r.fecha) + (r.porcentaje ? ' · ' + esc(r.porcentaje) + '%' : '') + (r.nota ? ' · ' + esc(r.nota) : '') + (r.quien ? ' <span class="muted">(' + esc(r.quien) + ')</span>' : '') + '</li>').join('') + '</ul>' : '')
     ).openOn(map);
+  } else if (tab === 'registro') {
+    L.popup().setLatLng(e.latlng).setContent('<b>Territorio ' + b.t + '</b>' + terrStatus(b.t)).openOn(map);
   } else if (tab === 'informe') {
     if (!infForm[b.id]) infForm[b.id] = { salida: '', estado: '', porcentaje: '', nota: '' };
     renderAll();
@@ -804,7 +890,7 @@ function renderAll() {
   renderPending();
   renderCola();
   renderMap();
-  panel.innerHTML = showLogin ? loginPanel() : { hoy: hoyPanel, informe: informePanel, planificar: planPanel, editar: editPanel }[tab]();
+  panel.innerHTML = showLogin ? loginPanel() : { hoy: hoyPanel, informe: informePanel, planificar: planPanel, registro: registroPanel, editar: editPanel }[tab]();
 }
 
 function renderPending() {
@@ -1028,6 +1114,85 @@ function planPanel() {
       '<span class="grow"><b>T' + r.t + '</b> · ' + r.n + ' manz. · ' + tdays(r.oldest) + (r.parciales ? ' · ' + r.parciales + ' parcial' + (r.parciales > 1 ? 'es' : '') : '') + '</span>' +
       '<button class="b small" data-act="tzoom" data-v="' + r.t + '">Ver</button><button class="b small" data-act="tpick" data-v="' + r.t + '">Elegir</button></div>').join('') +
     '<h3>Últimas 3 semanas</h3>' + (recientes.length ? '<p class="muted">✓ completo · ◐ parcial · ✕ no se hizo · — sin informe</p>' + recientes.map(item).join('') : '<p class="muted">Ninguna.</p>');
+}
+
+/** When a territory was last completed and how far along the current round is. */
+function terrStatus(t) {
+  const fin = lastDone(t), c = openCycle(t), n = BL.filter(b => b.t === t).length;
+  return '<div>' + (fin ? 'Completado ' + ago(fin) + ' <span class="muted">(' + fmt(fin) + ')</span>' : 'Nunca completado') + '</div>' +
+    (c ? '<div class="muted">En curso desde ' + fmt(c.inicio) + ': ' + c.hechas.size + ' de ' + n + ' manzanas completas' +
+      (c.nombres.length ? ' · ' + esc(c.nombres.join(', ')) : '') + '</div>' : '');
+}
+
+function registroPanel() {
+  const ts = Object.keys(CICLOS).map(Number);
+  const rows = ts.sort((a, b) => lastDone(a).localeCompare(lastDone(b)) || a - b); // never completed first, then oldest
+  const fechas = ts.map(lastDone).filter(Boolean).sort();
+  const hecho = c => esc(fmtCorto(c.inicio)) + ' → ' + (c.fin ? '<span class="done">✓ ' + esc(fmtCorto(c.fin)) + '</span>' : '<span class="muted">sin completar</span>') +
+    (c.nombres.length ? ' · ' + esc(c.nombres.join(', ')) : '');
+  const hoyAnio = anioServicio(ymd(new Date()));
+  const primero = Math.min(hoyAnio, ...Object.values(CICLOS).flat().map(c => anioServicio(c.inicio)));
+  const anios = [];
+  for (let y = hoyAnio; y >= primero; y--) anios.push(y);
+  return '<h2>Registro de territorios</h2>' +
+    '<p class="muted">Un territorio queda <b>completado</b> el día en que la última de sus manzanas recibe un informe “Completo”. ' +
+    'Se cuenta como <b>asignado</b> desde la primera salida (o informe) que lo incluye después de eso.</p>' +
+    '<h3>Mapa de calor</h3>' +
+    (fechas.length ? '<div class="heat-bar" style="background:linear-gradient(to right,' + HEAT.join(',') + ')"></div>' +
+      '<div class="heat-ends"><span>Más reciente (' + ago(fechas[fechas.length - 1]) + ')</span><span>Hace más tiempo (' + ago(fechas[0]) + ')</span></div>' : '') +
+    '<div class="legend"><span><i class="sw" style="background:' + NEVER + '"></i>Nunca completado</span></div>' +
+    '<p class="muted">Toca una manzana en el mapa para ver su territorio.</p>' +
+    '<h3>Imprimir el registro (S-13)</h3>' +
+    '<label>Año de servicio</label><div class="sel-row"><select data-in="s13anio">' +
+      anios.map(y => '<option value="' + y + '"' + (y === s13Anio ? ' selected' : '') + '>' + y + ' (sept ' + (y - 1) + ' – ago ' + y + ')</option>').join('') + '</select>' +
+      '<button class="b primary" data-act="s13">Ver</button></div>' +
+    '<h3>Territorios (' + ts.length + ')</h3>' +
+    '<p class="muted">Primero los que llevan más tiempo sin completarse.</p>' +
+    (rows.length ? rows.map(t => {
+      const cs = CICLOS[t].slice().reverse();
+      return '<div class="terr-row"><i class="sw" style="background:' + HEATC[t] + '"></i><div class="grow"><b>T' + t + '</b>' + terrStatus(t) +
+        (cs.length ? '<details><summary>Historial (' + cs.length + ')</summary><ul class="hist">' + cs.map(c => '<li>' + hecho(c) + '</li>').join('') + '</ul></details>' : '') +
+        '</div><button class="b small" data-act="tzoom" data-v="' + t + '">Ver</button></div>';
+    }).join('') : '<p class="muted">Todavía no hay manzanas con territorio (Editar → Manzanas).</p>');
+}
+
+/** The S-13 form for one service year: per territory its rounds that overlap the year, 4 per row, 20 rows per page. */
+function s13Html(anio) {
+  const desde = (anio - 1) + '-09-01', hasta = anio + '-08-31', filas = [];
+  Object.keys(CICLOS).map(Number).sort((a, b) => a - b).forEach(t => {
+    const cs = CICLOS[t];
+    const antes = cs.filter(c => c.fin && c.fin < desde).pop();
+    const del = cs.filter(c => c.inicio <= hasta && (!c.fin || c.fin >= desde));
+    for (let i = 0; i < Math.max(1, Math.ceil(del.length / 4)); i++) {
+      filas.push({ t, ultima: !i && antes ? antes.fin : '', cs: del.slice(i * 4, i * 4 + 4) });
+    }
+  });
+  const pages = [];
+  for (let i = 0; i < filas.length; i += 20) pages.push(filas.slice(i, i + 20));
+  if (!pages.length) pages.push([]);
+  const four = f => [0, 1, 2, 3].map(f).join(''); // the 4 "Asignado a" groups
+  const head = '<thead><tr><th rowspan="2" class="big">Núm.<br>de terr.</th><th rowspan="2" class="big">Última fecha en que se completó*</th>' +
+    four(() => '<th colspan="2" class="big gs">Asignado a</th>') + '</tr><tr>' +
+    four(() => '<th class="gs">Fecha en que se asignó</th><th>Fecha en que se completó</th>') + '</tr></thead>';
+  const fila = f => {
+    const c = i => (f && f.cs[i]) || null, names = i => c(i) ? esc(c(i).nombres.join(', ')) : '';
+    return '<tbody><tr><td rowspan="2"><b>' + (f ? f.t : '') + '</b></td><td rowspan="2">' + (f ? fmtCorto(f.ultima) : '') + '</td>' +
+      four(i => '<td colspan="2" class="gs" title="' + names(i) + '">' + names(i) + '</td>') + '</tr><tr>' +
+      four(i => '<td class="gs">' + (c(i) ? fmtCorto(c(i).inicio) : '') + '</td><td>' + (c(i) ? fmtCorto(c(i).fin) : '') + '</td>') + '</tr></tbody>';
+  };
+  const cols = '<colgroup><col style="width:7%"><col style="width:12%">' + '<col style="width:10.125%">'.repeat(8) + '</colgroup>';
+  return pages.map(p => '<section class="s13-page"><h1>REGISTRO DE ASIGNACIÓN DE TERRITORIO</h1>' +
+    '<div class="s13-anio">Año de servicio: <u>' + anio + '</u></div>' +
+    '<table>' + cols + head + p.concat(Array(20 - p.length).fill(null)).map(fila).join('') + '</table>' +
+    '<p class="s13-nota">*Cuando comience una nueva página, anote en esta columna la última fecha en que los territorios se completaron.</p></section>').join('');
+}
+function openS13() {
+  $('#s13').innerHTML = '<div class="s13-bar"><span class="grow"><b>Registro S-13 · Año de servicio ' + s13Anio + '</b><br>' +
+    '<small>Para guardarlo como PDF, elige “Guardar como PDF” al imprimir.</small></span>' +
+    '<button class="b primary" data-act="s13print">Imprimir</button><button class="b" data-act="s13close">Cerrar</button></div>' + s13Html(s13Anio);
+  $('#s13').scrollTop = 0;
+  $('#s13').classList.add('show');
+  document.body.classList.add('s13');
 }
 
 function editPanel() {
@@ -1369,6 +1534,9 @@ const ACT = {
   pdrop(el) { plan.bloques = plan.bloques.filter(id => id !== el.dataset.id); renderAll(); },
   tpick(el) { toggleTerritory(+el.dataset.v); },
   tzoom(el) { zoomTerritory(+el.dataset.v); },
+  s13() { openS13(); },
+  s13print() { window.print(); },
+  s13close() { $('#s13').classList.remove('show'); document.body.classList.remove('s13'); },
   async rangos() {
     const verde = +$('#r-verde').value, amarillo = +$('#r-amarillo').value;
     if (!(verde > 0 && amarillo > verde)) return toast('El amarillo tiene que ser mayor que el verde.');
@@ -1464,6 +1632,7 @@ const INPUT = {
   inffecha(el) { infFecha = el.value; infForm = {}; renderAll(); },
   nota(el) { infForm[el.dataset.id].nota = el.value; },
   quien(el) { store.set('territorios-quien', el.value); },
+  s13anio(el) { s13Anio = +el.value; },
   'p-fecha'(el) { plan.fecha = el.value; },
   'p-hora'(el) { plan.hora = el.value; },
   'p-punto'(el) { plan.punto = el.value; },
@@ -1475,7 +1644,7 @@ const INPUT = {
   guiaop(el) { guide.setOpacity(+el.value); },
 };
 // "change" for controls that re-render or save; "input" for live text so typing never loses focus.
-const ON_CHANGE = ['inffecha', 'tcolor', 'guiafile', 'p-fecha', 'p-hora', 'p-punto'];
+const ON_CHANGE = ['inffecha', 'tcolor', 'guiafile', 'p-fecha', 'p-hora', 'p-punto', 's13anio'];
 
 function onAct(e) {
   const el = e.target.closest('[data-act]');
@@ -1484,6 +1653,7 @@ function onAct(e) {
 panel.addEventListener('click', onAct);
 $('#pending').addEventListener('click', onAct);
 $('#cola').addEventListener('click', onAct);
+$('#s13').addEventListener('click', onAct);
 $('#share').addEventListener('click', e => { if (e.target.id === 'share') ACT.shareclose(); else onAct(e); });
 panel.addEventListener('input', e => {
   const k = e.target.dataset.in;

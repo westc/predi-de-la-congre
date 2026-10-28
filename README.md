@@ -14,7 +14,7 @@ The page itself holds no data and no link to the Sheet, so it's fine for this re
 |---|---|---|
 | **Publicador** | Scans the app's QR code (or opens its link) | **Hoy** only: today's salida with time, meeting point, **Cómo llegar**, and the manzanas to work, plus the next days |
 | **Conductor** | Opens the personal link the admin sends them | **Hoy** + **Informe**: report what was done today or any earlier day. Reports carry their name automatically |
-| **Admin** | Taps *Entrar como administrador* at the bottom of Hoy and enters the PIN | Everything: **Hoy**, **Informe**, **Planificar**, **Editar** (manzanas, meeting points, conductores, paper-map overlay) |
+| **Admin** | Taps *Entrar como administrador* at the bottom of Hoy and enters the PIN | Everything: **Hoy**, **Informe**, **Planificar**, **Registro**, **Editar** (manzanas, meeting points, conductores, paper-map overlay) |
 
 The Sheet enforces these rules, not only the page: without a conductor link or the PIN, the Sheet refuses informes and changes.
 
@@ -23,6 +23,10 @@ The Sheet enforces these rules, not only the page: without a conductor link or t
 - **Hoy:** big card(s) for today's salida, with **Cómo llegar** (Google Maps directions), **Ver en el mapa** and, in the salida's detail, **Compartir** (a picture or text to send). Today's manzanas are highlighted on the map. Tap any manzana to see when it was last worked; **◎** shows where you are; **Calles / Satélite** switches the background.
 - **Informe** (conductor, admin): mark each manzana *Completo*, *Parcial* or *No se hizo*.
 - **Planificar** (admin): date and time, meeting point, conductor, manzanas with notes; territories sorted by time without being worked, with the map colored by last work.
+- **Registro** (admin): which territories were completed most and least recently, as a heat map and a list with each territory's history, plus the **S-13** (*Registro de asignación de territorio*) for any service year, ready to print or save as PDF.
+  - A territory is **completed** on the day the last of its manzanas gets a *Completo* informe (*Parcial* doesn't count).
+  - It counts as **assigned** from the first salida (or informe) that includes it after its previous completion. *Asignado a* lists that round's conductores.
+  - Nothing new is entered for this: it all comes from the salidas and informes.
 - **Editar** (admin): label and reshape manzanas, add meeting points, **Conductores** (create and send their links), lay the paper map over the streets.
 - **Installable:**
   - Android Chrome shows **📲 Instalar la app** on the Mapa tab.
