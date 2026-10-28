@@ -12,7 +12,7 @@
  *
  * Three kinds of users (see who_):
  *  - publicador: anyone with the app link; can only look.
- *  - conductor: opened a personal link made by the admin (Conductores sheet); can also send informes
+ *  - conductor: opened a personal link made by the admin (Conductores sheet); can also send and correct informes
  *    and add houses that asked not to be visited.
  *  - admin: knows the PIN (Sheet menu → Territorios → Cambiar PIN); can do everything.
  */
@@ -23,7 +23,7 @@ const TABLES = {
   Territorios: ['id', 'color', 'notas'],
   Puntos:      ['id', 'letra', 'nombre', 'lat', 'lng'],
   Salidas:     ['id', 'fecha', 'bloques', 'punto', 'conductor', 'notas', 'notasBloques', 'hora'],
-  Informes:    ['id', 'fecha', 'salida', 'bloque', 'estado', 'porcentaje', 'nota', 'quien', 'creado'],
+  Informes:    ['id', 'fecha', 'salida', 'bloque', 'estado', 'porcentaje', 'nota', 'quien', 'creado', 'editadoPor', 'editado'],
   Config:      ['id', 'valor'],
   Conductores: ['id', 'nombre', 'clave', 'activo', 'creado'], // clave = the secret in the conductor's link
   NoVisitar:   ['id', 'bloque', 'nota', 'foto', 'quien', 'creado'], // houses that asked not to be visited
@@ -44,7 +44,7 @@ const SITE_URL = 'https://westc.github.io/predi-de-la-congre/';
 
 // What the page may call through doPost.
 // Each one gets who_() as its first argument.
-const API = { getAll, save, remove, commit, casa, borrarCasa, foto };
+const API = { getAll, save, remove, commit, informes, casa, borrarCasa, foto };
 
 /**
  * The page's requests: body = JSON {fn, args, auth: {pin, conductor}}.
@@ -308,6 +308,35 @@ function commit(who, changes) {
   return locked_(who, () => {
     for (const table in changes.save || {}) write_(table, changes.save[table], true);
     for (const table in changes.remove || {}) delete_(table, changes.remove[table]);
+  });
+}
+
+/**
+ * Saves informes (conductor or admin): new rows are added, rows already there are updated, and the
+ * ids in borrar are deleted. An update keeps who reported first (quien, creado); editadoPor and
+ * editado say who changed it last. Resending a row unchanged (a retry) changes nothing.
+ */
+function informes(who, rows, borrar) {
+  if (who.role === 'publicador') {
+    throw new Error(who.aviso || 'Solo los conductores pueden enviar informes. Pide tu enlace al encargado del territorio.');
+  }
+  return locked_(who, () => {
+    const old = {};
+    rows_('Informes').forEach(r => { old[r.id] = r; });
+    const ahora = new Date().toISOString();
+    const keep = rows.filter(r => {
+      const o = old[String(r.id)];
+      if (!o) {
+        if (who.role === 'conductor') r.quien = who.nombre; // the name comes from the link, not from the phone
+        return true;
+      }
+      if (['fecha', 'salida', 'bloque', 'estado', 'porcentaje', 'nota'].every(k => String(r[k] == null ? '' : r[k]) === o[k])) return false;
+      Object.assign(r, { quien: o.quien, creado: o.creado, editado: ahora,
+        editadoPor: who.role === 'conductor' ? who.nombre : String(r.editadoPor || '') || 'Administrador' });
+      return true;
+    });
+    if (keep.length) write_('Informes', keep, true);
+    if ((borrar || []).length) delete_('Informes', borrar);
   });
 }
 

@@ -48,7 +48,8 @@
 <style>
   :root { --fg:#1d2330; --muted:#6b7280; --line:#e3e6eb; --brand:#1f3d8a; --accent:#1f4fbf; --card:#fff; --bg:#f4f5f8; }
   * { box-sizing:border-box; }
-  html, body { height:100%; margin:0; }
+  html, body { height:100%; margin:0; overscroll-behavior-y:none; } /* no pull-to-refresh: it would reload the app */
+  #panel, #s13, #share .box { overscroll-behavior:contain; }
   body { font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; color:var(--fg); background:var(--bg); display:flex; flex-direction:column; }
   header { display:flex; align-items:center; gap:8px 12px; padding:8px 12px; background:var(--brand); color:#fff; flex-wrap:wrap; }
   h1 { font-size:16px; margin:0; font-weight:600; white-space:nowrap; }
@@ -56,6 +57,8 @@
   nav { display:flex; gap:2px; margin-left:auto; }
   nav button { background:transparent; border:0; color:#d3dcf5; padding:6px 9px; border-radius:6px; font:inherit; font-size:14px; cursor:pointer; }
   nav button.on { background:#fff; color:var(--brand); font-weight:600; }
+  #refresh { background:transparent; border:1px solid rgba(255,255,255,.45); color:#fff; border-radius:6px; font:inherit; font-size:15px; line-height:1; padding:5px 8px; cursor:pointer; }
+  #refresh.spin { animation:spin .8s linear infinite; }
   main { flex:1; display:flex; flex-direction:column; min-height:0; }
   #map { flex:1; min-height:42vh; }
   #panel { background:var(--card); border-top:1px solid var(--line); overflow:auto; max-height:52vh; padding:12px 16px 24px; }
@@ -200,6 +203,7 @@
   <h1>Territorios · La Villa</h1>
   <a id="openfull" href="" target="_blank" rel="noopener" title="Abrir en una pestaña aparte">Abrir aparte ↗</a>
   <nav id="tabs"></nav>
+  <button id="refresh" title="Traer los últimos datos de la hoja" aria-label="Actualizar">↻</button>
 </header>
 <div id="demo">Modo de prueba: los datos se guardan solo en este navegador (PIN de administrador: 1234).</div>
 <div id="pending"></div>
@@ -224,7 +228,7 @@
 <script src="manzanas.js"></script>
 <script>
 // ---------- settings ----------
-const VERSION = '12 · 27/10/2026'; // shown at the bottom of Editar; bump when changing this file
+const VERSION = '13 · 27/10/2026'; // shown at the bottom of Editar; bump when changing this file
 const PALETTE = ['#fff27a','#f7a8c8','#f9b26b','#ffd6b3','#b9dd8f','#80e0e8','#bba0ec','#a9c8f0','#d0d0d0','#f3df5a','#eaa3f2','#a3dcbc'];
 const PLAZA = [-17.794426, -63.134013];
 const RANGOS_DEFAULT = { verde: 30, amarillo: 90 }; // days; editable in Planificar (saved in Config)
@@ -315,6 +319,16 @@ const Mock = (() => {
         row.foto = foto ? '1.' + Date.now().toString(36) : '';
       }
       put('NoVisitar', [row]); persist(); return getAll(w);
+    },
+    informes(w, rows, borrar) {
+      if (w.role === 'publicador') throw new Error(w.aviso || 'Solo los conductores pueden enviar informes. Pide tu enlace al encargado del territorio.');
+      rows.forEach(r => {
+        const o = load().Informes.find(x => x.id === r.id);
+        if (!o) { put('Informes', [w.role === 'conductor' ? { ...r, quien: w.nombre } : r]); return; }
+        if (['fecha', 'salida', 'bloque', 'estado', 'porcentaje', 'nota'].every(k => String(r[k] == null ? '' : r[k]) === o[k])) return;
+        put('Informes', [{ ...r, quien: o.quien, creado: o.creado, editado: new Date().toISOString(), editadoPor: w.role === 'conductor' ? w.nombre : r.editadoPor || 'Administrador' }]);
+      });
+      del('Informes', borrar || []); persist(); return getAll(w);
     },
     borrarCasa(w, id) { needAdmin(w); del('Fotos', [id]); del('NoVisitar', [id]); persist(); return getAll(w); },
     foto(w, id) { const f = load().Fotos.find(r => r.casa === id); return f ? f.datos : ''; },
@@ -409,9 +423,12 @@ function newPlan() {
 // The last data from the Sheet is kept in this browser, so the app opens at once and works without signal.
 function setDB(data) { SERVER = data; store.set('predi-datos-' + KEY, JSON.stringify(data)); rebuild(); }
 
-// Informes sent without signal wait here and go out by themselves when there is a connection.
+// Informes sent without signal wait here and go out by themselves when there is a connection:
+// rows to add or update, and ids of informes to delete.
 function cola() { return safeJSON(store.get('predi-cola-' + KEY), null) || []; }
 function setCola(rows) { store.set('predi-cola-' + KEY, JSON.stringify(rows)); }
+function colaBorrar() { return safeJSON(store.get('predi-cola-borrar-' + KEY), null) || []; }
+function setColaBorrar(ids) { store.set('predi-cola-borrar-' + KEY, JSON.stringify(ids)); }
 // Houses not to visit wait the same way: [{ row, foto }].
 function casaCola() { return safeJSON(store.get('predi-casas-' + KEY), null) || []; }
 function setCasaCola(list) { store.set('predi-casas-' + KEY, JSON.stringify(list)); }
@@ -421,14 +438,15 @@ function waitingText(informes, casas) {
 }
 let flushing = false;
 async function flushCola(manual) {
-  const rows = cola(), casas = casaCola();
-  if ((!rows.length && !casas.length) || flushing || (!manual && !canReport())) return;
+  const rows = cola(), borrar = colaBorrar(), casas = casaCola();
+  if ((!rows.length && !borrar.length && !casas.length) || flushing || (!manual && !canReport())) return;
   flushing = true;
   try {
-    if (rows.length) {
-      const data = await api('save', 'Informes', rows);
-      const sent = new Set(rows.map(r => r.id));
-      setCola(cola().filter(r => !sent.has(r.id)));
+    if (rows.length || borrar.length) {
+      const data = await api('informes', rows, borrar);
+      const sent = new Set(rows.map(r => JSON.stringify(r))); // a row changed again meanwhile stays queued
+      setCola(cola().filter(r => !sent.has(JSON.stringify(r))));
+      setColaBorrar(colaBorrar().filter(id => !borrar.includes(id)));
       setDB(data);
     }
     for (const q of casas) {
@@ -436,7 +454,7 @@ async function flushCola(manual) {
       setCasaCola(casaCola().filter(x => x.row.id !== q.row.id));
       setDB(data);
     }
-    toast('Se envió lo que esperaba señal: ' + waitingText(rows.length, casas.length) + '.');
+    toast('Se envió lo que esperaba señal: ' + waitingText(rows.length + borrar.length, casas.length) + '.');
   } catch (e) {
     if (manual || !e.offline) toast(e.message);
   } finally {
@@ -452,8 +470,12 @@ function rebuild() {
     const rm = PEND.remove[t] || [], sv = PEND.save[t] || {};
     DB[t] = (SERVER[t] || []).filter(r => rm.indexOf(r.id) < 0 && !sv[r.id]).concat(Object.values(sv));
   });
-  const waiting = cola().filter(r => !DB.Informes.some(x => x.id === r.id));
-  DB.Informes = DB.Informes.concat(waiting);
+  const waiting = cola(), gone = new Set(colaBorrar().concat(waiting.map(r => r.id)));
+  // One informe per manzana and day: the latest (older duplicates stay in the Sheet but aren't used).
+  const uno = {};
+  DB.Informes.filter(r => !gone.has(r.id)).concat(waiting)
+    .sort((a, b) => (a.creado || '').localeCompare(b.creado || '')).forEach(r => { uno[r.fecha + '|' + r.bloque] = r; });
+  DB.Informes = Object.values(uno);
   DB.NoVisitar = DB.NoVisitar.concat(casaCola().filter(q => !DB.NoVisitar.some(x => x.id === q.row.id)).map(q => ({ ...q.row, foto: q.foto ? 'cola' : '' })));
   BL = DB.Bloques.map(b => ({ ...b, t: +b.territorio, n: +b.bloque, coords: safeJSON(b.coords, []) }))
     .sort((a, b) => a.t - b.t || a.n - b.n);
@@ -1019,7 +1041,7 @@ function renderPending() {
 }
 
 function renderCola() {
-  const a = cola().length, b = casaCola().length, el = $('#cola');
+  const a = cola().length + colaBorrar().length, b = casaCola().length, el = $('#cola');
   el.classList.toggle('show', a + b > 0);
   if (a + b) el.innerHTML = '<span class="grow">⏳ ' + waitingText(a, b) + (a + b === 1 ? ' espera' : ' esperan') + ' señal para enviarse</span>' +
     '<button class="b small" data-act="flush">Reintentar</button>';
@@ -1157,7 +1179,18 @@ function hoyPanel() {
     installHint() + accountFooter();
 }
 
+/**
+ * The Informe form for infFecha: what was already reported that day, ready to correct, plus the salidas' manzanas.
+ * Rows nobody has touched here follow the Sheet, so a refresh shows what others changed.
+ */
 function fillInforme() {
+  const hechos = {};
+  DB.Informes.filter(r => r.fecha === infFecha && BYID[r.bloque]).forEach(r => { hechos[r.bloque] = r; });
+  Object.keys(infForm).forEach(id => { if (!infForm[id].touched && infForm[id].informe && !hechos[id]) delete infForm[id]; });
+  Object.values(hechos).forEach(r => {
+    if (infForm[r.bloque] && infForm[r.bloque].touched) return;
+    infForm[r.bloque] = { informe: r, salida: r.salida, estado: r.estado, porcentaje: r.porcentaje || '', nota: r.nota || '' };
+  });
   DB.Salidas.filter(s => s.fecha === infFecha).forEach(s => salidaBlocks(s).forEach(id => {
     if (!infForm[id] && BYID[id]) infForm[id] = { salida: s.id, estado: '', porcentaje: '', nota: '' };
   }));
@@ -1169,30 +1202,35 @@ function informePanel() {
     const f = infForm[id], b = BYID[id];
     const s = f.salida && salidas.find(x => x.id === f.salida);
     const asignada = s && salidaNotes(s)[id];
-    const prev = DB.Informes.filter(r => r.bloque === id && r.fecha === infFecha);
+    const r = f.informe;
     return '<div class="row" data-row="' + id + '"><div class="row-t"><span>' + esc(bName(b)) + '</span>' +
-      (f.salida ? '' : '<button class="b small" data-act="infdrop" data-id="' + id + '">Quitar</button>') + '</div>' +
+      (inSalida(id) || r ? '' : '<button class="b small" data-act="infdrop" data-id="' + id + '">Quitar</button>') + '</div>' +
       (asignada ? '<div class="pin-note">📌 ' + esc(asignada) + '</div>' : '') + nvList([id]) +
-      (prev.length ? '<div class="muted">Ya informado: ' + prev.map(r => informeIcon(r) + ' ' + esc(ESTADOS[r.estado]) + (r.porcentaje ? ' ' + esc(r.porcentaje) + '%' : '') + (r.quien ? ' (' + esc(r.quien) + ')' : '')).join(', ') + '</div>' : '') +
+      (r ? '<div class="muted">Informado' + (r.quien ? ' por ' + esc(r.quien) : '') + (r.editadoPor ? ' · cambiado por ' + esc(r.editadoPor) : '') +
+        (cola().some(x => x.id === r.id) ? ' · ⏳ espera señal' : '') + '</div>' : '') +
+      (r && !f.estado ? '<div class="pin-note">Al guardar se borrará este informe.</div>' : '') +
       '<div class="seg">' + Object.keys(ESTADOS).map(k => '<button data-act="est" data-id="' + id + '" data-v="' + k + '" class="' + (f.estado === k ? 'on' : '') + '">' + ESTADOS[k] + '</button>').join('') + '</div>' +
       (f.estado === 'parcial' ? ' <div class="seg" style="margin-top:6px">' + ['25', '50', '75'].map(p => '<button data-act="pct" data-id="' + id + '" data-v="' + p + '" class="' + (f.porcentaje === p ? 'on' : '') + '">~' + p + '%</button>').join('') + '</div>' : '') +
       (f.estado ? '<input type="text" class="nota" data-in="nota" data-id="' + id + '" value="' + esc(f.nota) + '" placeholder="' + (f.estado === 'parcial' ? '¿Qué quedó pendiente? (ej.: falta lado de la calle 5)' : 'Nota (opcional)') + '">' : '') +
       '</div>';
   };
-  const extras = Object.keys(infForm).filter(id => !infForm[id].salida && BYID[id]);
+  const inSalida = id => salidas.some(s => s.id === infForm[id].salida && salidaBlocks(s).includes(id));
+  const extras = Object.keys(infForm).filter(id => !inSalida(id) && BYID[id]);
+  const hay = Object.values(infForm).some(f => f.informe);
   return '<h2>Informe de predicación</h2>' +
     '<label>Fecha</label><input type="date" data-in="inffecha" value="' + infFecha + '" max="' + ymd(new Date()) + '">' +
+    (hay ? '<p class="muted">Lo que ya se informó este día aparece marcado. Puedes corregirlo; para borrar un informe, toca de nuevo el estado marcado.</p>' : '') +
     (salidas.length ? '' : '<p class="muted">No hay salidas planificadas para esta fecha. Puedes tocar manzanas en el mapa para informarlas igual.</p>') +
     salidas.map(s => '<div class="card"><div class="card-h">' + (s.hora ? esc(s.hora) + ' · ' : '') + (s.punto ? esc(puntoName(s.punto)) : 'Salida') + '</div>' +
       (s.conductor ? '<div class="muted">Conductor: ' + esc(s.conductor) + '</div>' : '') +
       (s.notas ? '<div class="muted">' + esc(s.notas) + '</div>' : '') +
-      salidaBlocks(s).filter(id => infForm[id] && infForm[id].salida === s.id).map(row).join('') + '</div>').join('') +
+      salidaBlocks(s).filter(id => infForm[id] && inSalida(id) && infForm[id].salida === s.id).map(row).join('') + '</div>').join('') +
     (extras.length ? '<div class="card"><div class="card-h">Otras manzanas</div>' + extras.map(row).join('') + '</div>' : '') +
     (Object.keys(infForm).length ? '<p class="muted">Tocar una manzana en el mapa la agrega aquí.</p>' +
-      '<button class="b small" data-act="allno">Marcar todo “No se hizo”</button>' +
+      '<button class="b small" data-act="allno">Marcar “No se hizo” en las que faltan</button>' +
       (isAdmin() ? '<label>Tu nombre</label><input type="text" data-in="quien" value="' + esc(store.get('territorios-quien') || '') + '" placeholder="Nombre de quien informa">'
         : '<p class="muted">Informa: <b>' + esc(WHO.nombre) + '</b></p>') +
-      '<div class="actions"><button class="b primary" data-act="enviar">Enviar informe</button></div>' : '');
+      '<div class="actions"><button class="b primary" data-act="enviar">' + (hay ? 'Guardar informe' : 'Enviar informe') + '</button></div>' : '');
 }
 
 function territoryRows() {
@@ -1646,26 +1684,36 @@ const ACT = {
     const f = infForm[el.dataset.id];
     f.estado = f.estado === el.dataset.v ? '' : el.dataset.v;
     if (f.estado !== 'parcial') f.porcentaje = '';
+    f.touched = true;
     renderAll();
   },
-  pct(el) { const f = infForm[el.dataset.id]; f.porcentaje = f.porcentaje === el.dataset.v ? '' : el.dataset.v; renderAll(); },
+  pct(el) { const f = infForm[el.dataset.id]; f.porcentaje = f.porcentaje === el.dataset.v ? '' : el.dataset.v; f.touched = true; renderAll(); },
   infdrop(el) { delete infForm[el.dataset.id]; renderAll(); },
-  allno() { Object.values(infForm).forEach(f => { f.estado = 'no'; f.porcentaje = ''; }); renderAll(); },
+  allno() { Object.values(infForm).filter(f => !f.estado && !f.informe).forEach(f => { f.estado = 'no'; f.porcentaje = ''; f.touched = true; }); renderAll(); },
   async enviar() {
     const quien = isAdmin() ? (store.get('territorios-quien') || '').trim() : WHO.nombre; // the Sheet uses the conductor's own name anyway
-    const creado = new Date().toISOString();
-    const rows = Object.keys(infForm).filter(id => infForm[id].estado).map(id => ({
-      id: uid(), fecha: infFecha, salida: infForm[id].salida, bloque: id, estado: infForm[id].estado,
-      porcentaje: infForm[id].porcentaje, nota: infForm[id].nota.trim(), quien, creado,
-    }));
-    if (!rows.length) return toast('Marca al menos una manzana.');
+    const ahora = new Date().toISOString();
+    const changed = Object.keys(infForm).filter(id => infForm[id].touched);
+    // Changed rows keep their id, so the Sheet updates them; on an update it keeps who reported first.
+    const rows = changed.filter(id => infForm[id].estado).map(id => {
+      const f = infForm[id], old = f.informe;
+      return { id: old ? old.id : uid(), fecha: infFecha, salida: f.salida, bloque: id, estado: f.estado, porcentaje: f.porcentaje, nota: f.nota.trim(),
+        quien: old ? old.quien : quien, creado: old ? old.creado : ahora, editadoPor: old ? quien : '', editado: old ? ahora : '' };
+    });
+    // Also clears older duplicates of a changed manzana for this day (from before informes could be corrected).
+    const keep = new Set(rows.map(r => r.id));
+    const borrar = SERVER.Informes.concat(cola()).filter(r => r.fecha === infFecha && changed.includes(r.bloque) && !keep.has(r.id)).map(r => r.id);
+    if (!rows.length && !borrar.length) {
+      return toast(Object.values(infForm).some(f => f.informe) ? 'No hay cambios para guardar.' : 'Marca al menos una manzana.');
+    }
     if (!quien) return toast('Escribe tu nombre.');
     try {
-      await saveRows('Informes', rows, 'Enviando informe…');
-      toast('¡Gracias! Informe enviado.');
+      setDB(await busy(api('informes', rows, borrar), 'Enviando informe…'));
+      toast('¡Gracias! Informe guardado.');
     } catch (e) {
       if (!e.offline) return;
-      setCola(cola().concat(rows));
+      setCola(cola().filter(r => !rows.some(x => x.id === r.id)).concat(rows));
+      setColaBorrar(colaBorrar().concat(borrar));
       rebuild();
       toast('Sin señal: el informe quedó guardado en este celular y se enviará solo cuando haya conexión.', 7000);
     }
@@ -1810,7 +1858,7 @@ const ACT = {
 
 const INPUT = {
   inffecha(el) { infFecha = el.value; infForm = {}; renderAll(); },
-  nota(el) { infForm[el.dataset.id].nota = el.value; },
+  nota(el) { infForm[el.dataset.id].nota = el.value; infForm[el.dataset.id].touched = true; },
   quien(el) { store.set('territorios-quien', el.value); },
   s13anio(el) { s13Anio = +el.value; },
   nvnota(el) { nv.nota = el.value; },
@@ -1859,6 +1907,30 @@ $('#tabs').addEventListener('click', e => {
   tab = b.dataset.tab; editSel = null; addingPunto = false; verSalida = ''; showLogin = false; nv = null;
   map.closePopup();
   renderAll();
+  if (tab === 'informe' && Date.now() - lastLoad > 15000) refresh(false); // so corrections start from what others sent
+});
+
+// ---------- refresh: ↻, and by itself when the app comes back to the screen ----------
+let lastLoad = 0, loading = false;
+async function refresh(manual) {
+  if (loading || (!API_ID && !DEMO)) return;
+  loading = true;
+  $('#refresh').classList.add('spin');
+  try {
+    setDB(await api('getAll'));
+    lastLoad = Date.now();
+    if (manual) toast('Datos actualizados.');
+  } catch (e) {
+    if (manual) toast(e.message);
+  } finally {
+    loading = false;
+    $('#refresh').classList.remove('spin');
+  }
+  flushCola();
+}
+$('#refresh').addEventListener('click', () => refresh(true));
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && Date.now() - lastLoad > 60000) refresh(false);
 });
 window.addEventListener('beforeunload', e => { if (pendingCount()) { e.preventDefault(); e.returnValue = ''; } });
 
@@ -1890,6 +1962,7 @@ async function start() {
   try {
     const data = await (saved ? api('getAll') : busy(api('getAll'), 'Cargando…'));
     setDB(data);
+    lastLoad = Date.now();
     if (!saved) fitStart();
   } catch (e) {
     if (saved) toast(e.offline ? 'Sin conexión: se muestran los últimos datos guardados.' : e.message, 5000);
