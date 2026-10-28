@@ -22,6 +22,10 @@ The Sheet enforces these rules, not only the page: without a conductor link or t
 
 - **Hoy:** big card(s) for today's salida, with **Cómo llegar** (Google Maps directions), **Ver en el mapa** and, in the salida's detail, **Compartir** (a picture or text to send). Today's manzanas are highlighted on the map.
   - Once every manzana of a salida has an informe, it stops being shown as the upcoming salida. It moves to **Ya informadas hoy**, where each manzana shows how it went: ✓ completo (green), ◐ parcial with its % (orange), ✕ no se hizo (red). The map colors those manzanas the same way, with the same symbol. If all of today's salidas are reported, the next salida takes the big card. Tap any manzana to see when it was last worked; **◎** shows where you are; **Calles / Satélite** switches the background.
+- **History (everyone):** tapping a manzana on Hoy (or Registro) offers **📜 Historial** and **📜 Territorio N**:
+  - **Manzana:** when it was last completed, partial work since, upcoming salidas with their notes, houses not to visit, and every informe by year, with who reported or changed it.
+  - **Territorio:** its state, each manzana (tap one for its history), every round from assigned to completed and by whom, and all its informes by year.
+  - The manzana names in Planificar and Informe open the same screens.
 - **Informe** (conductor, admin): mark each manzana *Completo*, *Parcial* or *No se hizo*.
   - What was already reported for that day shows up marked, and any conductor or admin can correct it. Tapping the marked state again deletes that informe.
   - There is one informe per manzana per day. A correction keeps who reported it first and adds who changed it (*editadoPor*, *editado* in the Sheet).
