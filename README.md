@@ -22,6 +22,7 @@ The Sheet enforces these rules, not only the page: without a conductor link or t
 
 - **Hoy:** big card(s) for today's salida, with **Cómo llegar** (Google Maps directions), **Ver en el mapa** and, in the salida's detail, **Compartir** (a picture or text to send). Today's manzanas are highlighted on the map.
   - Once every manzana of a salida has an informe, it stops being shown as the upcoming salida. It moves to **Ya informadas hoy**, where each manzana shows how it went: ✓ completo (green), ◐ parcial with its % (orange), ✕ no se hizo (red). The map colors those manzanas the same way, with the same symbol. If all of today's salidas are reported, the next salida takes the big card. Tap any manzana to see when it was last worked; **◎** shows where you are; **Calles / Satélite** switches the background.
+- **Tamaño de letra (everyone):** at the bottom of Hoy, **A− / A+** chooses Pequeña, Normal (default), Grande or Muy grande; each phone remembers it. It's needed because an iPhone's own text size doesn't reach web apps, and an app added to the home screen has no zoom button. The printed S-13 keeps its size.
 - **History (everyone):** tapping a manzana on Hoy (or Registro) offers **📜 Historial** and **📜 Territorio N**:
   - **Manzana:** when it was last completed, partial work since, upcoming salidas with their notes, houses not to visit, and every informe by year, with who reported or changed it.
   - **Territorio:** its state, each manzana (tap one for its history), every round from assigned to completed and by whom, and all its informes by year.
