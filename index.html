@@ -177,6 +177,10 @@
   .chip.parcial { background:#fff0db; color:#7a4700; border-color:#f3c98b; }
   .chip.no { background:#fde8e6; color:#8a1c12; border-color:#f3b5ae; }
   .sal-done { background:#f6f7f9; }
+  .falta { border-color:#f3c99a; background:#fff8ee; }
+  .badge { display:inline-block; min-width:18px; padding:0 5px; margin-left:4px; border-radius:9px; background:#d9480f; color:#fff; font-size:11px; font-weight:700; line-height:18px; text-align:center; }
+  .sug { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:8px; }
+  .sug input { width:60px; padding:5px 6px; }
   .heat-bar { height:10px; border-radius:3px; border:1px solid rgba(0,0,0,.15); margin-top:8px; }
   .heat-ends { display:flex; justify-content:space-between; gap:8px; font-size:12px; color:var(--muted); }
   .terr-row details summary { margin:2px 0 0; }
@@ -238,7 +242,7 @@
 <script src="manzanas.js"></script>
 <script>
 // ---------- settings ----------
-const VERSION = '21 · 28/10/2026'; // shown at the bottom of Editar; bump when changing this file
+const VERSION = '22 · 28/10/2026'; // shown at the bottom of Editar; bump when changing this file
 const PALETTE = ['#fff27a','#f7a8c8','#f9b26b','#ffd6b3','#b9dd8f','#80e0e8','#bba0ec','#a9c8f0','#d0d0d0','#f3df5a','#eaa3f2','#a3dcbc'];
 const PLAZA = [-17.794426, -63.134013];
 // Rough placement of the paper map over the streets: top-left, top-right, bottom-left corners.
@@ -643,6 +647,89 @@ function nextSalidaFor(id) {
   const hoy = ymd(new Date());
   return DB.Salidas.filter(s => s.fecha >= hoy && salidaBlocks(s).includes(id)).sort(bySalidaTime)[0];
 }
+
+// ---------- informes still missing ----------
+const FALTAN_DIAS = 45; // how far back to look for salidas with manzanas nobody reported
+/** Past salidas with manzanas that have no informe for that day: [{ s, ids }], newest first. */
+function faltanInformes() {
+  const hoy = ymd(new Date());
+  return DB.Salidas.filter(s => s.fecha < hoy && daysSince(s.fecha) <= FALTAN_DIAS)
+    .map(s => { const por = salidaInformes(s); return { s, ids: Object.keys(por).filter(id => !por[id]) }; })
+    .filter(x => x.ids.length).sort((a, b) => bySalidaTime(b.s, a.s));
+}
+const nameWords = n => sinTildes(String(n || '').toLowerCase()).split(/[^a-z]+/).filter(w => w.length >= 3 && !/^(hno|hna|hermano|hermana)$/.test(w));
+function sinTildes(s) { return s.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); }
+/** Whether a salida's conductor (typed by hand) is this conductor: they share a name ("Erick" ~ "Erick Moscoso"). */
+function esMia(s) { const mine = nameWords(WHO.nombre); return nameWords(s.conductor).some(w => mine.includes(w)); }
+/** What this person should report: everything for the admin, their own salidas for a conductor. */
+function misFaltantes() {
+  return isAdmin() ? faltanInformes() : WHO.role === 'conductor' ? faltanInformes().filter(x => esMia(x.s)) : [];
+}
+function faltanBox() {
+  const f = misFaltantes();
+  if (!f.length) return '';
+  return '<div class="card falta"><div class="card-h">⚠ Faltan informes (' + f.length + ')</div>' +
+    '<p class="muted">' + (isAdmin() ? 'Salidas de los últimos ' + FALTAN_DIAS + ' días con manzanas sin informar.' : 'Tus salidas con manzanas sin informar.') + '</p>' +
+    f.slice(0, 6).map(x => '<div class="list-item"><div><b>' + esc(when(x.s)) + '</b>' + (isAdmin() && x.s.conductor ? ' · ' + esc(x.s.conductor) : '') +
+      '<div class="muted">Falta: ' + esc(describe(x.ids)) + '</div></div><button class="b small primary" data-act="goinf" data-v="' + x.s.fecha + '">Informar</button></div>').join('') +
+    (f.length > 6 ? '<p class="muted">… y ' + (f.length - 6) + ' más.</p>' : '') +
+    '<p class="muted">Si no se salió (lluvia, etc.), entra y toca “Marcar ‘No se hizo’ en las que faltan”.</p></div>';
+}
+
+// ---------- suggested salida ----------
+/**
+ * The n manzanas a salida could take: those longest without being completed (never completed first), kept close
+ * together and, when a punto is chosen, close to it. Leaves out manzanas already in another upcoming salida, and
+ * those in "excluir" (already suggested, so "Otra sugerencia" gives different ones).
+ */
+function sugerencia(n, excluir) {
+  const hoy = ymd(new Date());
+  const ocupadas = new Set(DB.Salidas.filter(s => s.fecha >= hoy && s.id !== plan.id).flatMap(salidaBlocks));
+  const p = DB.Puntos.find(x => x.letra === plan.punto);
+  const pll = p ? L.latLng(+p.lat, +p.lng) : null;
+  const ll = b => L.latLng(centroid(b.coords));
+  const cerca = pll && BL.length ? BL.slice().sort((a, b) => pll.distanceTo(ll(a)) - pll.distanceTo(ll(b)))[0] : null;
+  const area = cerca ? areaDe(cerca.t) : areaActual(); // the punto's area, or the one shown on the map
+  let cands = BL.filter(b => areaDe(b.t) === area && !ocupadas.has(b.id) && !excluir.includes(b.id));
+  const viejas = cands.filter(b => !COMP[b.id] || daysSince(COMP[b.id]) > RECIENTE);
+  if (viejas.length >= n) cands = viejas; // manzanas completed in the last weeks only if there aren't enough others
+  if (!cands.length) return [];
+  const days = b => COMP[b.id] ? daysSince(COMP[b.id]) : Infinity;
+  const maxD = Math.max(30, ...cands.map(days).filter(isFinite));
+  const age = b => isFinite(days(b)) ? days(b) / maxD : 1; // 0 = just completed … 1 = the oldest (or never completed)
+  const M = 500; // meters away that weigh as much as the whole range of ages
+  const first = cands.map(b => ({ b, sc: age(b) - (pll ? pll.distanceTo(ll(b)) / M : 0) })).sort((x, y) => y.sc - x.sc);
+  const picked = [first[0].b];
+  while (picked.length < Math.min(n, cands.length)) {
+    let best = null, bestSc = -Infinity;
+    cands.forEach(b => {
+      if (picked.includes(b)) return;
+      const near = Math.min(...picked.map(x => ll(x).distanceTo(ll(b))));
+      const sc = age(b) - near / M - (pll ? pll.distanceTo(ll(b)) / M : 0);
+      if (sc > bestSc) { bestSc = sc; best = b; }
+    });
+    picked.push(best);
+  }
+  return picked.map(b => b.id);
+}
+const RECIENTE = 21; // days: a manzana completed more recently than this isn't suggested
+let sugN = +store.get('predi-sugn') || 4;
+/**
+ * Replaces the salida's manzanas with a suggestion. otra: different manzanas from the ones suggested before (starting
+ * over when none are left). plan.sug remembers what was suggested, until the selection is changed by hand.
+ */
+function aplicarSugerencia(otra) {
+  let vistos = otra && plan.sug ? plan.sug.vistos : [];
+  let ids = sugerencia(sugN, vistos);
+  if (ids.length < sugN && vistos.length) { vistos = []; ids = sugerencia(sugN, []); }
+  if (!ids.length) return toast('No hay manzanas libres para sugerir.');
+  plan.bloques = []; plan.notasB = {};
+  addToPlan(ids);
+  plan.sug = { vistos: vistos.concat(ids) };
+  const pts = ids.flatMap(id => BYID[id].coords), p = DB.Puntos.find(x => x.letra === plan.punto);
+  if (p) pts.push([+p.lat, +p.lng]);
+  map.fitBounds(L.latLngBounds(pts), { padding: [40, 40], maxZoom: 17 });
+}
 function puntoOf(s) { return DB.Puntos.find(p => p.letra === s.punto); }
 /** Archived meeting points (Config "puntos_archivados" = [ids]): off the map and out of Planificar, but old salidas keep them. */
 function archivados() { return new Set(safeJSON(CONFIG.puntos_archivados, null) || []); }
@@ -978,6 +1065,7 @@ function onBlockClick(b, e) {
     if (!isAdmin()) return;
     const i = plan.bloques.indexOf(b.id);
     if (i >= 0) plan.bloques.splice(i, 1); else addToPlan([b.id]);
+    plan.sug = null;
     renderAll();
   } else if (tab === 'editar' && isAdmin()) {
     editSub = 'bloques'; selectForEdit({ kind: 'bloque', id: b.id });
@@ -1017,6 +1105,7 @@ function toggleTerritory(t) {
   const ids = BL.filter(b => b.t === t).map(b => b.id);
   const all = ids.every(id => plan.bloques.includes(id));
   if (all) plan.bloques = plan.bloques.filter(id => !ids.includes(id)); else addToPlan(ids.filter(id => !plan.bloques.includes(id)));
+  plan.sug = null;
   renderAll();
 }
 /** "Quedó parcial el 07/12 (~50%): solo la calle 8", for a manzana with partial work since it was last completed. */
@@ -1117,7 +1206,9 @@ const panel = $('#panel');
 function renderAll() {
   const tabs = TABS[WHO.role];
   if (!tabs.includes(tab)) tab = 'hoy';
-  $('#tabs').innerHTML = tabs.length > 1 ? tabs.map(t => '<button data-tab="' + t + '" class="' + (t === tab ? 'on' : '') + '">' + TAB_NAMES[t] + '</button>').join('') : '';
+  const faltan = canReport() ? misFaltantes().length : 0;
+  $('#tabs').innerHTML = tabs.length > 1 ? tabs.map(t => '<button data-tab="' + t + '" class="' + (t === tab ? 'on' : '') + '">' + TAB_NAMES[t] +
+    (t === 'informe' && faltan ? '<span class="badge" title="Salidas con manzanas sin informar">' + faltan + '</span>' : '') + '</button>').join('') : '';
   const showDraw = tab === 'editar' && editSub === 'bloques';
   if (showDraw && !map.pm.controlsVisible()) {
     map.pm.addControls({ position: 'topleft', drawMarker: false, drawCircleMarker: false, drawPolyline: false, drawRectangle: false,
@@ -1368,7 +1459,7 @@ function hoyPanel() {
   const pend = today.filter(x => !informada(x)), hechas = today.filter(informada);
   const later = DB.Salidas.filter(x => x.fecha > hoy).sort(bySalidaTime);
   const rest = pend.length ? later : later.slice(1);
-  return (pend.length ? '<h2>Hoy · ' + fmt(hoy) + '</h2>' + pend.map(x => salidaCard(x, false)).join('')
+  return faltanBox() + (pend.length ? '<h2>Hoy · ' + fmt(hoy) + '</h2>' + pend.map(x => salidaCard(x, false)).join('')
       : '<h2>' + (hechas.length > 1 ? 'Las salidas de hoy ya se informaron' : hechas.length ? 'La salida de hoy ya se informó' : 'Hoy no hay salida') + '</h2>' +
         (later.length ? '<p class="muted">La próxima:</p>' + salidaCard(later[0], true) : '<p class="muted">Todavía no hay salidas planificadas.</p>')) +
     (hechas.length ? '<h3>Ya informadas hoy</h3>' + hechas.map(salidaHecha).join('') + ESTADO_LEYENDA : '') +
@@ -1470,11 +1561,16 @@ function planPanel() {
     '<label>Conductor</label><input type="text" data-in="p-conductor" list="conductores" value="' + esc(plan.conductor) + '">' +
     '<datalist id="conductores">' + DB.Conductores.filter(c => c.activo !== 'no').map(c => '<option value="' + esc(c.nombre) + '">').join('') + '</datalist>' +
     '<label>Notas de la salida</label><input type="text" data-in="p-notas" value="' + esc(plan.notas) + '">' +
+    '<div class="sug"><button class="b" data-act="sugerir">✨ ' + (plan.sug ? 'Otra sugerencia' : 'Sugerir manzanas') + '</button>' +
+      '<span class="muted">cuántas</span><input type="number" min="1" max="30" data-in="sugn" value="' + sugN + '"></div>' +
+    '<p class="muted">Sugiere las que llevan más tiempo sin completarse (no las completadas en las últimas 3 semanas), juntas' +
+      (plan.punto ? ' y cerca del punto ' + esc(plan.punto) + '.' : '. Elige antes el punto de salida para que queden cerca de él.') + '</p>' +
     '<label>Manzanas (' + sel.length + ') — puedes poner una nota a cada una</label>' +
     (sel.length ? sel.map(b => '<div class="sel-row"><button class="link" data-act="bhist" data-id="' + b.id + '" title="Ver el historial">' + bShort(b) + (PARC[b.id] ? ' ◐' : '') + '</button>' +
       '<input type="text" data-in="p-nb" data-id="' + b.id + '" value="' + esc(plan.notasB[b.id] || '') + '" placeholder="Ej.: solo Av. General Campero">' +
       '<button class="b small" data-act="pdrop" data-id="' + b.id + '" title="Quitar">✕</button></div>' +
-      (PARC[b.id] ? '<div class="muted sel-hint">◐ ' + esc(parcialText(b.id)) + '. Cambia la nota para decir qué falta.</div>' : '')).join('') : '<p class="muted">Ninguna todavía.</p>') +
+      '<div class="muted sel-hint">' + (COMP[b.id] ? 'Completada ' + ago(COMP[b.id]) : 'Nunca completada') +
+        (PARC[b.id] ? ' · ◐ ' + esc(parcialText(b.id)) + '. Cambia la nota para decir qué falta.' : '') + '</div>').join('') : '<p class="muted">Ninguna todavía.</p>') +
     '<div class="actions"><button class="b primary" data-act="plansave">' + (plan.id ? 'Guardar cambios' : 'Guardar salida') + '</button>' +
     '<button class="b" data-act="planreset">' + (plan.id ? 'Cancelar' : 'Limpiar') + '</button></div>' +
     '<h3>Próximas salidas</h3>' + (prox.length ? prox.map(item).join('') : '<p class="muted">Ninguna.</p>') +
@@ -1936,7 +2032,12 @@ const ACT = {
     infForm = {};
     renderAll();
   },
-  pdrop(el) { plan.bloques = plan.bloques.filter(id => id !== el.dataset.id); renderAll(); },
+  pdrop(el) { plan.bloques = plan.bloques.filter(id => id !== el.dataset.id); plan.sug = null; renderAll(); },
+  sugerir() {
+    if (!plan.sug && plan.bloques.length && !confirm('¿Cambiar las ' + plan.bloques.length + ' manzanas elegidas por una sugerencia?')) return;
+    aplicarSugerencia(!!plan.sug);
+    renderAll();
+  },
   tpick(el) { toggleTerritory(+el.dataset.v); },
   tzoom(el) { zoomTerritory(+el.dataset.v); },
   s13() { openS13(); },
@@ -2115,10 +2216,15 @@ const INPUT = {
   },
   'p-fecha'(el) { plan.fecha = el.value; },
   'p-hora'(el) { plan.hora = el.value; },
-  'p-punto'(el) { plan.punto = el.value; },
+  'p-punto'(el) {
+    plan.punto = el.value;
+    if (plan.sug) aplicarSugerencia(false); // the suggestion follows the punto until it's changed by hand
+    renderAll();
+  },
+  sugn(el) { sugN = Math.max(1, Math.min(30, +el.value || 4)); store.set('predi-sugn', sugN); if (plan.sug) aplicarSugerencia(false); renderAll(); },
   'p-conductor'(el) { plan.conductor = el.value; },
   'p-notas'(el) { plan.notas = el.value; },
-  'p-nb'(el) { plan.notasB[el.dataset.id] = el.value; },
+  'p-nb'(el) { plan.notasB[el.dataset.id] = el.value; plan.sug = null; },
   tcolor(el) { stage('Territorios', { id: el.dataset.t, color: el.value, notas: '' }); },
   guiafile(el) { if (el.files[0]) loadGuide(el.files[0]); },
   arname(el) {
@@ -2134,7 +2240,7 @@ const INPUT = {
   guiaop(el) { guide.setOpacity(+el.value); },
 };
 // "change" for controls that re-render or save; "input" for live text so typing never loses focus.
-const ON_CHANGE = ['inffecha', 'tcolor', 'guiafile', 'p-fecha', 'p-hora', 'p-punto', 's13anio', 'nvfile', 'arname', 'arterr'];
+const ON_CHANGE = ['inffecha', 'tcolor', 'guiafile', 'p-fecha', 'p-hora', 'p-punto', 's13anio', 'nvfile', 'arname', 'arterr', 'sugn'];
 
 function onAct(e) {
   const el = e.target.closest('[data-act]');

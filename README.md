@@ -26,6 +26,7 @@ The Sheet enforces these rules, not only the page: without a conductor link or t
   - **Manzana:** when it was last completed, partial work since, upcoming salidas with their notes, houses not to visit, and every informe by year, with who reported or changed it.
   - **Territorio:** its state, each manzana (tap one for its history), every round from assigned to completed and by whom, and all its informes by year.
   - The manzana names in Planificar and Informe open the same screens.
+- **Faltan informes:** salidas from the last 45 days with manzanas nobody reported show at the top of Hoy, with **Informar**, and as a number on the Informe tab. A conductor sees their own salidas (matched by name); the admin sees everyone's.
 - **Informe** (conductor, admin): mark each manzana *Completo*, *Parcial* or *No se hizo*.
   - What was already reported for that day shows up marked, and any conductor or admin can correct it. Tapping the marked state again deletes that informe.
   - There is one informe per manzana per day. A correction keeps who reported it first and adds who changed it (*editadoPor*, *editado* in the Sheet).
@@ -35,7 +36,7 @@ The Sheet enforces these rules, not only the page: without a conductor link or t
   - The photo is shrunk on the phone to at most 120 KB before it's sent.
   - Everyone sees them: a 🚫 on the manzana in the map, in the manzana's details, in the salida cards and in Informe. **Compartir** includes them in the text and picture.
   - The admin edits or deletes them from **Registro → Casas que no se visitan**. Conductores can only add.
-- **Planificar** (admin): date and time, meeting point, conductor, manzanas with notes; territories sorted by their manzana that has gone longest without being completed. **Colorear por → Último trabajo** turns the map into a heat map of the manzanas, from light (completed recently) to dark (longest ago), gray if never completed, with ◐ on those with partial work since.
+- **Planificar** (admin): date and time, meeting point, conductor, manzanas with notes; territories sorted by their manzana that has gone longest without being completed. **✨ Sugerir manzanas** proposes the chosen number of manzanas longest without being completed, close together and, if a meeting point is chosen first, close to it (it updates when the point changes, until the selection is changed by hand). It skips manzanas completed in the last 3 weeks and those already in an upcoming salida; **Otra sugerencia** gives different ones. **Colorear por → Último trabajo** turns the map into a heat map of the manzanas, from light (completed recently) to dark (longest ago), gray if never completed, with ◐ on those with partial work since.
 - **Registro** (admin): which territories were completed most and least recently, as a heat map and a list with each territory's history, plus the **S-13** (*Registro de asignación de territorio*) for any service year, ready to print or save as PDF.
   - A territory is **completed** on the day the last of its manzanas gets a *Completo* informe (*Parcial* doesn't count).
   - It counts as **assigned** from the first salida (or informe) that includes it after its previous completion. *Asignado a* lists that round's conductores.
