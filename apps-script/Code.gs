@@ -12,7 +12,8 @@
  *
  * Three kinds of users (see who_):
  *  - publicador: anyone with the app link; can only look.
- *  - conductor: opened a personal link made by the admin (Conductores sheet); can also send informes.
+ *  - conductor: opened a personal link made by the admin (Conductores sheet); can also send informes
+ *    and add houses that asked not to be visited.
  *  - admin: knows the PIN (Sheet menu → Territorios → Cambiar PIN); can do everything.
  */
 
@@ -25,10 +26,16 @@ const TABLES = {
   Informes:    ['id', 'fecha', 'salida', 'bloque', 'estado', 'porcentaje', 'nota', 'quien', 'creado'],
   Config:      ['id', 'valor'],
   Conductores: ['id', 'nombre', 'clave', 'activo', 'creado'], // clave = the secret in the conductor's link
+  NoVisitar:   ['id', 'bloque', 'nota', 'foto', 'quien', 'creado'], // houses that asked not to be visited
+  Fotos:       ['id', 'casa', 'datos'], // their pictures, in pieces (see casa)
 };
 
 // Tables only the admin may read (the rest is visible to anyone with the app link).
 const ADMIN_ONLY = ['Conductores'];
+// Tables getAll leaves out because they are big; the page asks for one picture at a time (foto).
+const HEAVY = ['Fotos'];
+// A cell holds at most 50,000 characters, so a picture is stored in pieces of this size.
+const PIECE = 40000;
 // After this many wrong PINs, the PIN is refused for 15 minutes.
 const MAX_PIN_FAILS = 10;
 
@@ -37,7 +44,7 @@ const SITE_URL = 'https://westc.github.io/predi-de-la-congre/';
 
 // What the page may call through doPost.
 // Each one gets who_() as its first argument.
-const API = { getAll, save, remove, commit };
+const API = { getAll, save, remove, commit, casa, borrarCasa, foto };
 
 /**
  * The page's requests: body = JSON {fn, args, auth: {pin, conductor}}.
@@ -223,6 +230,7 @@ function rows_(table) {
 function getAll(who) {
   const out = {};
   for (const table in TABLES) {
+    if (HEAVY.indexOf(table) >= 0) continue;
     if (who.role === 'admin' || ADMIN_ONLY.indexOf(table) < 0) out[table] = rows_(table);
   }
   return out;
@@ -301,4 +309,63 @@ function commit(who, changes) {
     for (const table in changes.save || {}) write_(table, changes.save[table], true);
     for (const table in changes.remove || {}) delete_(table, changes.remove[table]);
   });
+}
+
+// ---------- houses that asked not to be visited ----------
+
+/**
+ * Adds a house (conductor or admin), or changes one (admin only).
+ * foto: a JPEG data: URL, '' for no picture, or null to keep the one it has.
+ * A conductor sending a house that is already there (a retry) changes nothing.
+ */
+function casa(who, row, foto) {
+  if (who.role === 'publicador') {
+    throw new Error(who.aviso || 'Solo los conductores pueden registrar casas. Pide tu enlace al encargado del territorio.');
+  }
+  if (!String(row.id || '') || !String(row.bloque || '')) throw new Error('Falta la manzana de la casa.');
+  if (!String(row.nota || '').trim()) throw new Error('Falta la dirección o descripción de la casa.');
+  if (foto && !(/^data:image\/jpeg;base64,[\w+\/=]+$/.test(foto) && foto.length <= 200000)) {
+    throw new Error('La foto no es válida o es demasiado grande.');
+  }
+  return locked_(who, () => {
+    const old = rows_('NoVisitar').find(r => r.id === String(row.id));
+    if (old && who.role !== 'admin') return;
+    if (who.role === 'conductor') row.quien = who.nombre; // the name comes from the link, not from the phone
+    row.foto = old ? old.foto : '';
+    if (foto != null) {
+      if (old) delete_('Fotos', fotoIds_(old));
+      const pieces = [];
+      for (let i = 0; i < foto.length; i += PIECE) pieces.push({ id: row.id + '-' + pieces.length, casa: row.id, datos: foto.slice(i, i + PIECE) });
+      if (pieces.length) write_('Fotos', pieces, true);
+      // How many pieces, plus a stamp so phones know when a picture was replaced.
+      row.foto = pieces.length ? pieces.length + '.' + Date.now().toString(36) : '';
+    }
+    write_('NoVisitar', [row], true);
+  });
+}
+
+function borrarCasa(who, id) {
+  needAdmin_(who);
+  return locked_(who, () => {
+    const old = rows_('NoVisitar').find(r => r.id === String(id));
+    if (old) delete_('Fotos', fotoIds_(old));
+    delete_('NoVisitar', [id]);
+  });
+}
+
+/** One house's picture as a data: URL ('' if it has none). */
+function foto(who, id) {
+  const sh = sheet_('Fotos'), n = sh.getLastRow();
+  if (n < 2) return '';
+  const pieces = [];
+  sh.getRange(2, 1, n - 1, 2).getDisplayValues().forEach((r, i) => {
+    if (r[1] === String(id)) pieces[+r[0].slice(r[0].lastIndexOf('-') + 1)] = i + 2;
+  });
+  return pieces.map(row => sh.getRange(row, 3).getValue()).join('');
+}
+
+function fotoIds_(casaRow) {
+  const n = parseInt(casaRow.foto, 10) || 0, ids = [];
+  for (let i = 0; i < n; i++) ids.push(casaRow.id + '-' + i);
+  return ids;
 }

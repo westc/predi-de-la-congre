@@ -160,6 +160,11 @@
   #share .box { background:#fff; border-radius:12px; max-width:520px; width:100%; max-height:100%; overflow:auto; padding:12px; }
   #share img { width:100%; border-radius:8px; border:1px solid var(--line); display:block; }
   #share textarea { width:100%; font:13px/1.35 system-ui,sans-serif; margin-top:8px; }
+  .nv-b { display:inline-block; margin-left:2px; padding:0 3px; border-radius:7px; background:#fde2e0; font-size:10px; text-shadow:none; }
+  .nv-box { background:#fdecea; border:1px solid #f5c2bd; color:#7a1d14; border-radius:8px; padding:6px 8px; margin:6px 0; font-size:13px; }
+  .nv-item { padding:3px 0; }
+  .nv-item + .nv-item { border-top:1px solid #f5c2bd; }
+  .nv-foto { display:block; max-width:100%; max-height:220px; border-radius:8px; border:1px solid var(--line); margin:4px 0 6px; }
   .heat-bar { height:10px; border-radius:3px; border:1px solid rgba(0,0,0,.15); margin-top:8px; }
   .heat-ends { display:flex; justify-content:space-between; gap:8px; font-size:12px; color:var(--muted); }
   .terr-row details summary { margin:2px 0 0; }
@@ -219,7 +224,7 @@
 <script src="manzanas.js"></script>
 <script>
 // ---------- settings ----------
-const VERSION = '11 · 27/10/2026'; // shown at the bottom of Editar; bump when changing this file
+const VERSION = '12 · 27/10/2026'; // shown at the bottom of Editar; bump when changing this file
 const PALETTE = ['#fff27a','#f7a8c8','#f9b26b','#ffd6b3','#b9dd8f','#80e0e8','#bba0ec','#a9c8f0','#d0d0d0','#f3df5a','#eaa3f2','#a3dcbc'];
 const PLAZA = [-17.794426, -63.134013];
 const RANGOS_DEFAULT = { verde: 30, amarillo: 90 }; // days; editable in Planificar (saved in Config)
@@ -229,7 +234,8 @@ const ESTADOS = { completo: 'Completo', parcial: 'Parcial', no: 'No se hizo' };
 // Registro heat map: one blue, light (completed most recently) to dark (longest ago). Never completed is gray.
 const HEAT = ['#cde2fb', '#b7d3f6', '#9ec5f4', '#86b6ef', '#6da7ec', '#5598e7', '#3987e5', '#2a78d6', '#256abf', '#1c5cab', '#184f95', '#104281', '#0d366b'];
 const NEVER = '#c4c4c4';
-const TABLE_NAMES = ['Bloques', 'Territorios', 'Puntos', 'Salidas', 'Informes', 'Config', 'Conductores'];
+const TABLE_NAMES = ['Bloques', 'Territorios', 'Puntos', 'Salidas', 'Informes', 'Config', 'Conductores', 'NoVisitar'];
+const FOTO_MAX = 120 * 1024; // bytes: pictures of houses are shrunk until they fit
 
 // ---------- storage helpers ----------
 const store = {
@@ -248,7 +254,7 @@ const Mock = (() => {
   const load = () => {
     if (!mem) { try { mem = JSON.parse(store.get('territorios-demo')); } catch (e) {} }
     mem = mem || emptyDB();
-    TABLE_NAMES.forEach(t => { mem[t] = mem[t] || []; });
+    TABLE_NAMES.concat('Fotos').forEach(t => { mem[t] = mem[t] || []; });
     return mem;
   };
   const persist = () => store.set('territorios-demo', JSON.stringify(mem));
@@ -273,6 +279,7 @@ const Mock = (() => {
   };
   const getAll = w => {
     const d = JSON.parse(JSON.stringify(load()));
+    delete d.Fotos;
     if (w.role !== 'admin') delete d.Conductores;
     return d;
   };
@@ -295,6 +302,22 @@ const Mock = (() => {
       Object.keys(ch.remove || {}).forEach(t => del(t, ch.remove[t]));
       persist(); return getAll(w);
     },
+    casa(w, row, foto) {
+      if (w.role === 'publicador') throw new Error(w.aviso || 'Solo los conductores pueden registrar casas. Pide tu enlace al encargado del territorio.');
+      if (!String(row.nota || '').trim()) throw new Error('Falta la dirección o descripción de la casa.');
+      const old = load().NoVisitar.find(r => r.id === row.id);
+      if (old && w.role !== 'admin') return getAll(w);
+      if (w.role === 'conductor') row = { ...row, quien: w.nombre };
+      row = { ...row, foto: old ? old.foto : '' };
+      if (foto != null) {
+        del('Fotos', [row.id]);
+        if (foto) put('Fotos', [{ id: row.id, casa: row.id, datos: foto }]);
+        row.foto = foto ? '1.' + Date.now().toString(36) : '';
+      }
+      put('NoVisitar', [row]); persist(); return getAll(w);
+    },
+    borrarCasa(w, id) { needAdmin(w); del('Fotos', [id]); del('NoVisitar', [id]); persist(); return getAll(w); },
+    foto(w, id) { const f = load().Fotos.find(r => r.casa === id); return f ? f.datos : ''; },
   };
   return {
     call(fn, args, auth) {
@@ -373,6 +396,8 @@ let tab = 'hoy', colorBy = 'territorio', editSub = 'bloques', showLogin = false;
 let plan = newPlan();
 let infFecha = ymd(new Date()), infForm = {};
 let editSel = null, lastSaved = null, addingPunto = false, shapeLayer = null;
+// The house-not-to-visit form: { id, bloque, nota, foto, preview }; foto = data: URL, '' none, null keep the saved one.
+let nv = null;
 let verSalida = START_SALIDA; // salida shown in Mapa (also from a shared link)
 let guide = null, guideAdjust = false, guideHandles = [];
 
@@ -387,17 +412,31 @@ function setDB(data) { SERVER = data; store.set('predi-datos-' + KEY, JSON.strin
 // Informes sent without signal wait here and go out by themselves when there is a connection.
 function cola() { return safeJSON(store.get('predi-cola-' + KEY), null) || []; }
 function setCola(rows) { store.set('predi-cola-' + KEY, JSON.stringify(rows)); }
+// Houses not to visit wait the same way: [{ row, foto }].
+function casaCola() { return safeJSON(store.get('predi-casas-' + KEY), null) || []; }
+function setCasaCola(list) { store.set('predi-casas-' + KEY, JSON.stringify(list)); }
+/** "2 informes y 1 casa" */
+function waitingText(informes, casas) {
+  return [informes && informes + (informes === 1 ? ' informe' : ' informes'), casas && casas + (casas === 1 ? ' casa' : ' casas')].filter(Boolean).join(' y ');
+}
 let flushing = false;
 async function flushCola(manual) {
-  const rows = cola();
-  if (!rows.length || flushing || (!manual && !canReport())) return;
+  const rows = cola(), casas = casaCola();
+  if ((!rows.length && !casas.length) || flushing || (!manual && !canReport())) return;
   flushing = true;
   try {
-    const data = await api('save', 'Informes', rows);
-    const sent = new Set(rows.map(r => r.id));
-    setCola(cola().filter(r => !sent.has(r.id)));
-    setDB(data);
-    toast(rows.length === 1 ? 'Se envió el informe que esperaba señal.' : 'Se enviaron ' + rows.length + ' informes que esperaban señal.');
+    if (rows.length) {
+      const data = await api('save', 'Informes', rows);
+      const sent = new Set(rows.map(r => r.id));
+      setCola(cola().filter(r => !sent.has(r.id)));
+      setDB(data);
+    }
+    for (const q of casas) {
+      const data = await api('casa', q.row, q.foto);
+      setCasaCola(casaCola().filter(x => x.row.id !== q.row.id));
+      setDB(data);
+    }
+    toast('Se envió lo que esperaba señal: ' + waitingText(rows.length, casas.length) + '.');
   } catch (e) {
     if (manual || !e.offline) toast(e.message);
   } finally {
@@ -415,6 +454,7 @@ function rebuild() {
   });
   const waiting = cola().filter(r => !DB.Informes.some(x => x.id === r.id));
   DB.Informes = DB.Informes.concat(waiting);
+  DB.NoVisitar = DB.NoVisitar.concat(casaCola().filter(q => !DB.NoVisitar.some(x => x.id === q.row.id)).map(q => ({ ...q.row, foto: q.foto ? 'cola' : '' })));
   BL = DB.Bloques.map(b => ({ ...b, t: +b.territorio, n: +b.bloque, coords: safeJSON(b.coords, []) }))
     .sort((a, b) => a.t - b.t || a.n - b.n);
   BYID = Object.fromEntries(BL.map(b => [b.id, b]));
@@ -560,6 +600,77 @@ function informeIcon(r) {
   if (!r) return '<span class="muted">—</span>';
   return { completo: '<span class="done">✓</span>', parcial: '<span class="part">◐</span>', no: '<span class="not">✕</span>' }[r.estado] || '';
 }
+// ---------- houses that asked not to be visited ----------
+function casasDe(id) { return DB.NoVisitar.filter(c => c.bloque === id).sort((a, b) => (a.creado || '').localeCompare(b.creado || '')); }
+/** The houses in these manzanas, for the salida screens: "T1·M3: casa verde… 📷". */
+function nvList(ids) {
+  const cs = ids.flatMap(casasDe);
+  if (!cs.length) return '';
+  return '<div class="nv-box"><b>🚫 No visitar (' + cs.length + ')</b>' + cs.map(c => '<div class="nv-item"><b>' + esc(bShort(BYID[c.bloque])) + ':</b> ' + esc(c.nota) +
+    (c.foto ? ' <button class="b small" data-act="nvfoto" data-id="' + c.id + '">📷 Foto</button>' : '') + '</div>').join('') + '</div>';
+}
+/** One house in a list, with its picture button and (admin) Editar / Borrar. */
+function nvItem(c, withBlock) {
+  return '<div class="list-item"><div>' + (withBlock ? '<b>' + esc(bShort(BYID[c.bloque] || {})) + '</b> · ' : '') + esc(c.nota) +
+    '<div class="muted">' + (c.quien ? esc(c.quien) + ' · ' : '') + (c.creado ? fmt(c.creado.slice(0, 10)) : '') + (c.foto === 'cola' ? ' · ⏳ espera señal' : '') + '</div></div>' +
+    '<div style="white-space:nowrap">' + (c.foto ? '<button class="b small" data-act="nvfoto" data-id="' + c.id + '">📷</button> ' : '') +
+    (isAdmin() && c.foto !== 'cola' ? '<button class="b small" data-act="nvedit" data-id="' + c.id + '">Editar</button> <button class="b small danger" data-act="nvdel" data-id="' + c.id + '">Borrar</button>' : '') +
+    '</div></div>';
+}
+
+const FOTOS = {}; // casa id + version → data: URL, for this visit; also kept in the browser's cache for offline use
+async function getFoto(c) {
+  const q = casaCola().find(x => x.row.id === c.id);
+  if (q) return q.foto;
+  const k = c.id + '@' + c.foto;
+  if (FOTOS[k]) return FOTOS[k];
+  const url = location.origin + '/fotos/' + encodeURIComponent(KEY) + '/' + encodeURIComponent(k);
+  let cache = null;
+  try {
+    cache = await caches.open('fotos');
+    const hit = await cache.match(url);
+    if (hit) return (FOTOS[k] = await hit.text());
+  } catch (e) {}
+  const data = await api('foto', c.id);
+  if (!data) throw new Error('La foto ya no está.');
+  if (cache) cache.put(url, new Response(data)).catch(() => {});
+  return (FOTOS[k] = data);
+}
+async function openFoto(c) {
+  const src = await busy(getFoto(c), 'Cargando foto…');
+  shareData = null;
+  $('#share .box').innerHTML = '<div class="row-t"><span>🚫 ' + esc(bName(BYID[c.bloque])) + '</span><button class="b small" data-act="shareclose">✕</button></div>' +
+    '<img src="' + src + '" alt="Foto de la casa"><p>' + esc(c.nota) + '</p>';
+  $('#share').classList.add('show');
+}
+
+/** Shrinks a picture to a JPEG (data: URL) of at most FOTO_MAX bytes. */
+async function shrinkPhoto(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((res, rej) => {
+      const i = new Image();
+      i.onload = () => res(i);
+      i.onerror = () => rej(new Error('No se pudo abrir esa imagen. Prueba con otra foto.'));
+      i.src = url;
+    });
+    const cv = document.createElement('canvas'), cx = cv.getContext('2d');
+    const size = d => Math.floor((d.length - d.indexOf(',') - 1) * 3 / 4);
+    for (let side = 1600; ; side = Math.round(side * 0.75)) {
+      const k = Math.min(1, side / Math.max(img.naturalWidth, img.naturalHeight));
+      cv.width = Math.max(1, Math.round(img.naturalWidth * k)); cv.height = Math.max(1, Math.round(img.naturalHeight * k));
+      cx.fillStyle = '#fff'; cx.fillRect(0, 0, cv.width, cv.height);
+      cx.drawImage(img, 0, 0, cv.width, cv.height);
+      for (const q of [0.8, 0.65, 0.5]) {
+        const data = cv.toDataURL('image/jpeg', q);
+        if (size(data) <= FOTO_MAX || side < 200) return data;
+      }
+    }
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 function centroid(coords) {
   const n = coords.length || 1;
   return [coords.reduce((s, c) => s + c[0], 0) / n, coords.reduce((s, c) => s + c[1], 0) / n];
@@ -655,6 +766,7 @@ const zoomClass = () => document.body.classList.toggle('far', map.getZoom() < 16
 map.on('zoomend', zoomClass); zoomClass();
 
 function highlightSet() {
+  if (nv) return new Set(nv.bloque ? [nv.bloque] : []);
   if (tab === 'informe') return new Set(Object.keys(infForm));
   if (tab === 'hoy') {
     const list = shownSalida() ? [shownSalida()] : todaySalidas();
@@ -682,7 +794,8 @@ function renderMap() {
       fillColor: byStatus ? statusColor(b.id) : tab === 'registro' ? HEATC[b.t] : tColor(b.t),
       fillOpacity: dim ? (sat ? 0.1 : 0.25) : sat ? 0.4 : 0.7,
     });
-    poly.bindTooltip(String(b.n), { permanent: true, direction: 'center', className: 'lbl-b' });
+    const nvs = casasDe(b.id).length;
+    poly.bindTooltip(b.n + (nvs ? '<span class="nv-b" title="No visitar">🚫' + (nvs > 1 ? nvs : '') + '</span>' : ''), { permanent: true, direction: 'center', className: 'lbl-b' });
     poly.on('click', e => onBlockClick(b, e));
     poly._bid = b.id;
     gBloques.addLayer(poly);
@@ -728,7 +841,9 @@ function renderMap() {
 
 function onBlockClick(b, e) {
   if (addingPunto) return placePunto(e.latlng);
+  if (nv) { nv.bloque = b.id; return renderAll(); }
   if (tab === 'hoy') {
+    const nvs = casasDe(b.id);
     const hist = DB.Informes.filter(r => r.bloque === b.id).sort((a, c) => (c.fecha + c.creado).localeCompare(a.fecha + a.creado)).slice(0, 6);
     const last = LAST[b.id], next = nextSalidaFor(b.id);
     const nextNote = next && salidaNotes(next)[b.id];
@@ -736,7 +851,10 @@ function onBlockClick(b, e) {
       '<b>' + esc(bName(b)) + '</b>' + (b.notas ? '<div class="muted">' + esc(b.notas) + '</div>' : '') +
       '<div>' + (last ? 'Último: ' + esc(ESTADOS[last.estado]) + (last.porcentaje ? ' ' + esc(last.porcentaje) + '%' : '') + ' — ' + fmt(last.fecha) + ' (' + ago(last.fecha) + ')' : 'Sin informes todavía') + '</div>' +
       (next ? '<div>Asignada: ' + when(next) + '</div>' + (nextNote ? '<div class="pin-note">📌 ' + esc(nextNote) + '</div>' : '') : '') +
-      (hist.length ? '<ul class="hist">' + hist.map(r => '<li>' + informeIcon(r) + ' ' + fmt(r.fecha) + (r.porcentaje ? ' · ' + esc(r.porcentaje) + '%' : '') + (r.nota ? ' · ' + esc(r.nota) : '') + (r.quien ? ' <span class="muted">(' + esc(r.quien) + ')</span>' : '') + '</li>').join('') + '</ul>' : '')
+      (hist.length ? '<ul class="hist">' + hist.map(r => '<li>' + informeIcon(r) + ' ' + fmt(r.fecha) + (r.porcentaje ? ' · ' + esc(r.porcentaje) + '%' : '') + (r.nota ? ' · ' + esc(r.nota) : '') + (r.quien ? ' <span class="muted">(' + esc(r.quien) + ')</span>' : '') + '</li>').join('') + '</ul>' : '') +
+      (nvs.length ? '<div class="nv-box"><b>🚫 No visitar (' + nvs.length + ')</b>' + nvs.map(c => '<div class="nv-item">' + esc(c.nota) +
+        (c.foto ? ' <button class="b small" data-act="nvfoto" data-id="' + c.id + '">📷 Foto</button>' : '') + '</div>').join('') + '</div>' : '') +
+      (canReport() ? '<div class="actions"><button class="b small" data-act="nvnew" data-id="' + b.id + '">🚫 Registrar casa que no se visita</button></div>' : '')
     ).openOn(map);
   } else if (tab === 'registro') {
     L.popup().setLatLng(e.latlng).setContent('<b>Territorio ' + b.t + '</b>' + terrStatus(b.t)).openOn(map);
@@ -890,7 +1008,7 @@ function renderAll() {
   renderPending();
   renderCola();
   renderMap();
-  panel.innerHTML = showLogin ? loginPanel() : { hoy: hoyPanel, informe: informePanel, planificar: planPanel, registro: registroPanel, editar: editPanel }[tab]();
+  panel.innerHTML = showLogin ? loginPanel() : nv ? nvPanel() : { hoy: hoyPanel, informe: informePanel, planificar: planPanel, registro: registroPanel, editar: editPanel }[tab]();
 }
 
 function renderPending() {
@@ -901,10 +1019,26 @@ function renderPending() {
 }
 
 function renderCola() {
-  const n = cola().length, el = $('#cola');
-  el.classList.toggle('show', n > 0);
-  if (n) el.innerHTML = '<span class="grow">⏳ ' + n + (n === 1 ? ' informe espera' : ' informes esperan') + ' señal para enviarse</span>' +
+  const a = cola().length, b = casaCola().length, el = $('#cola');
+  el.classList.toggle('show', a + b > 0);
+  if (a + b) el.innerHTML = '<span class="grow">⏳ ' + waitingText(a, b) + (a + b === 1 ? ' espera' : ' esperan') + ' señal para enviarse</span>' +
     '<button class="b small" data-act="flush">Reintentar</button>';
+}
+
+function nvPanel() {
+  const b = BYID[nv.bloque], src = nv.foto === null ? nv.preview : nv.foto;
+  return '<h2>' + (nv.id ? 'Casa que no se visita' : 'Registrar casa que no se visita') + '</h2>' +
+    '<p class="muted">Se verá en el mapa y en las salidas que incluyan esta manzana, para que nadie toque ahí.</p>' +
+    '<label>Manzana</label><div><b>' + (b ? esc(bName(b)) : 'Toca la manzana en el mapa') + '</b></div>' +
+    (b ? '<p class="muted">Para cambiarla, toca otra manzana en el mapa.</p>' : '') +
+    '<label>Dirección o descripción de la casa (obligatoria)</label>' +
+    '<textarea rows="3" data-in="nvnota" placeholder="Ej.: Calle 5 Oeste #123, casa verde con reja negra, al lado de la tienda">' + esc(nv.nota) + '</textarea>' +
+    '<label>Foto (opcional)</label>' +
+    (src ? '<img class="nv-foto" src="' + src + '" alt="Foto de la casa">' : nv.foto === null && nv.tenia ? '<p class="muted">Cargando foto…</p>' : '') +
+    '<input type="file" accept="image/*" data-in="nvfile">' +
+    (src || (nv.foto === null && nv.tenia) ? '<div class="actions"><button class="b small" data-act="nvsinfoto">Quitar la foto</button></div>' : '') +
+    '<div class="actions"><button class="b primary" data-act="nvsave">Guardar</button><button class="b" data-act="nvcancel">Cancelar</button></div>' +
+    (b && casasDe(b.id).filter(c => c.id !== nv.id).length ? '<h3>Ya registradas en esta manzana</h3>' + casasDe(b.id).filter(c => c.id !== nv.id).map(c => nvItem(c, false)).join('') : '');
 }
 
 function loginPanel() {
@@ -986,7 +1120,7 @@ function salidaPanel(s) {
     (s.punto ? '<div class="sal-d">📍 Punto de salida: <b>' + esc(puntoName(s.punto)) + '</b></div>' : '<div class="sal-d muted">Sin punto de salida.</div>') +
     (s.conductor ? '<div class="sal-d">Conductor: <b>' + esc(s.conductor) + '</b></div>' : '') +
     (s.notas ? '<div class="sal-d">' + esc(s.notas) + '</div>' : '') +
-    '<label>Manzanas</label>' + salidaSummary(s) +
+    '<label>Manzanas</label>' + salidaSummary(s) + nvList(salidaBlocks(s)) +
     '<div class="actions">' + (dest ? '<a class="b primary" href="' + directionsUrl(dest) + '" target="_blank" rel="noopener">Cómo llegar</a>' : '') +
     '<button class="b" data-act="share">Compartir</button>' +
     (canReport() ? '<button class="b" data-act="goinf" data-v="' + s.fecha + '">Informar</button>' : '') + '</div>' +
@@ -1000,7 +1134,7 @@ function salidaCard(s, withDate) {
     (s.punto ? '<div class="sal-d">📍 <b>' + esc(puntoName(s.punto)) + '</b></div>' : '') +
     (s.conductor ? '<div class="sal-d">Conductor: ' + esc(s.conductor) + '</div>' : '') +
     (s.notas ? '<div class="sal-d">' + esc(s.notas) + '</div>' : '') +
-    '<div class="sal-d"><b>Manzanas:</b></div>' + salidaSummary(s) +
+    '<div class="sal-d"><b>Manzanas:</b></div>' + salidaSummary(s) + nvList(salidaBlocks(s)) +
     '<div class="actions">' + (dest ? '<a class="b primary" href="' + directionsUrl(dest) + '" target="_blank" rel="noopener">Cómo llegar</a>' : '') +
     '<button class="b" data-act="ver" data-id="' + s.id + '">Ver en el mapa</button>' +
     (canReport() ? '<button class="b" data-act="goinf" data-v="' + s.fecha + '">Informar</button>' : '') + '</div></div>';
@@ -1018,7 +1152,8 @@ function hoyPanel() {
     (rest.length ? '<h3>Próximos días</h3>' + rest.slice(0, 8).map(x => '<div class="list-item click" data-act="ver" data-id="' + x.id + '"><div><b>' + esc(when(x)) + '</b>' +
       (x.punto ? ' · ' + esc(puntoName(x.punto)) : '') + '<div class="muted">' + esc(describe(salidaBlocks(x))) + '</div></div><span class="muted">›</span></div>').join('') : '') +
     '<p class="muted">Toca una manzana en el mapa para ver cuándo se trabajó. El botón ◎ muestra dónde estás.</p>' +
-    '<div class="actions"><button class="b" data-act="appshare">📤 Compartir la app</button></div>' +
+    '<div class="actions">' + (canReport() ? '<button class="b" data-act="nvnew">🚫 Registrar casa que no se visita</button>' : '') +
+    '<button class="b" data-act="appshare">📤 Compartir la app</button></div>' +
     installHint() + accountFooter();
 }
 
@@ -1037,7 +1172,7 @@ function informePanel() {
     const prev = DB.Informes.filter(r => r.bloque === id && r.fecha === infFecha);
     return '<div class="row" data-row="' + id + '"><div class="row-t"><span>' + esc(bName(b)) + '</span>' +
       (f.salida ? '' : '<button class="b small" data-act="infdrop" data-id="' + id + '">Quitar</button>') + '</div>' +
-      (asignada ? '<div class="pin-note">📌 ' + esc(asignada) + '</div>' : '') +
+      (asignada ? '<div class="pin-note">📌 ' + esc(asignada) + '</div>' : '') + nvList([id]) +
       (prev.length ? '<div class="muted">Ya informado: ' + prev.map(r => informeIcon(r) + ' ' + esc(ESTADOS[r.estado]) + (r.porcentaje ? ' ' + esc(r.porcentaje) + '%' : '') + (r.quien ? ' (' + esc(r.quien) + ')' : '')).join(', ') + '</div>' : '') +
       '<div class="seg">' + Object.keys(ESTADOS).map(k => '<button data-act="est" data-id="' + id + '" data-v="' + k + '" class="' + (f.estado === k ? 'on' : '') + '">' + ESTADOS[k] + '</button>').join('') + '</div>' +
       (f.estado === 'parcial' ? ' <div class="seg" style="margin-top:6px">' + ['25', '50', '75'].map(p => '<button data-act="pct" data-id="' + id + '" data-v="' + p + '" class="' + (f.porcentaje === p ? 'on' : '') + '">~' + p + '%</button>').join('') + '</div>' : '') +
@@ -1146,6 +1281,10 @@ function registroPanel() {
     '<label>Año de servicio</label><div class="sel-row"><select data-in="s13anio">' +
       anios.map(y => '<option value="' + y + '"' + (y === s13Anio ? ' selected' : '') + '>' + y + ' (sept ' + (y - 1) + ' – ago ' + y + ')</option>').join('') + '</select>' +
       '<button class="b primary" data-act="s13">Ver</button></div>' +
+    '<h3>Casas que no se visitan (' + DB.NoVisitar.length + ')</h3>' +
+    (DB.NoVisitar.length ? '<details><summary>Ver todas</summary>' + DB.NoVisitar.slice()
+      .sort((a, c) => ((BYID[a.bloque] || {}).t - (BYID[c.bloque] || {}).t) || ((BYID[a.bloque] || {}).n - (BYID[c.bloque] || {}).n) || (a.creado || '').localeCompare(c.creado || ''))
+      .map(c => nvItem(c, true)).join('') + '</details>' : '<p class="muted">Ninguna. Se registran desde Hoy, o tocando una manzana en el mapa de Hoy.</p>') +
     '<h3>Territorios (' + ts.length + ')</h3>' +
     '<p class="muted">Primero los que llevan más tiempo sin completarse.</p>' +
     (rows.length ? rows.map(t => {
@@ -1318,6 +1457,7 @@ function salidaText(s) {
     s.conductor ? 'Conductor: ' + s.conductor : '',
     'Manzanas: ' + describe(salidaBlocks(s)),
     ...Object.keys(notes).filter(id => BYID[id] && notes[id]).map(id => '📌 ' + bShort(BYID[id]) + ': ' + notes[id]),
+    ...salidaBlocks(s).flatMap(casasDe).map(c => '🚫 No visitar — ' + bShort(BYID[c.bloque]) + ': ' + c.nota),
     s.notas || '',
     link ? 'Ver en el mapa: ' + link : '',
   ].filter(Boolean).join('\n');
@@ -1362,6 +1502,7 @@ async function salidaImage(s) {
     s.conductor && ['32px system-ui,sans-serif', '#444', 'Conductor: ' + s.conductor],
     ['32px system-ui,sans-serif', '#444', 'Manzanas: ' + describe(salidaBlocks(s))],
     ...Object.keys(notes).filter(id => BYID[id] && notes[id]).map(id => ['30px system-ui,sans-serif', '#6b4e00', '📌 ' + bShort(BYID[id]) + ': ' + notes[id]]),
+    ...salidaBlocks(s).flatMap(casasDe).map(c => ['30px system-ui,sans-serif', '#b42318', '🚫 No visitar — ' + bShort(BYID[c.bloque]) + ': ' + c.nota]),
     s.notas && ['italic 30px system-ui,sans-serif', '#444', s.notas],
   ].filter(Boolean);
   const laid = rows.map(([font, color, text]) => {
@@ -1535,6 +1676,45 @@ const ACT = {
   tpick(el) { toggleTerritory(+el.dataset.v); },
   tzoom(el) { zoomTerritory(+el.dataset.v); },
   s13() { openS13(); },
+  nvnew(el) {
+    map.closePopup(); showLogin = false;
+    nv = { id: '', bloque: BYID[el.dataset.id] ? el.dataset.id : '', nota: '', foto: '', tenia: false };
+    renderAll(); panel.scrollTop = 0;
+    if (!nv.bloque) toast('Toca en el mapa la manzana de la casa.');
+  },
+  nvedit(el) {
+    const c = DB.NoVisitar.find(x => x.id === el.dataset.id);
+    map.closePopup(); $('#share').classList.remove('show');
+    nv = { id: c.id, bloque: c.bloque, nota: c.nota, quien: c.quien, creado: c.creado, foto: null, tenia: !!c.foto, preview: '' };
+    renderAll(); panel.scrollTop = 0;
+    if (c.foto) getFoto(c).then(src => { if (nv && nv.id === c.id) { nv.preview = src; renderAll(); } }).catch(e => toast(e.message));
+  },
+  nvsinfoto() { nv.foto = ''; nv.tenia = false; renderAll(); },
+  nvcancel() { nv = null; renderAll(); },
+  async nvsave() {
+    const nota = nv.nota.trim();
+    if (!BYID[nv.bloque]) return toast('Toca en el mapa la manzana de la casa.');
+    if (!nota) return toast('Escribe la dirección o una descripción de la casa.');
+    const row = { id: nv.id || uid(), bloque: nv.bloque, nota, creado: nv.creado || new Date().toISOString(),
+      quien: nv.id ? nv.quien : isAdmin() ? (store.get('territorios-quien') || '').trim() : WHO.nombre }; // the Sheet uses a conductor's own name anyway
+    try {
+      setDB(await busy(api('casa', row, nv.foto), 'Guardando…'));
+      toast('Casa guardada.');
+    } catch (e) {
+      if (!e.offline || nv.id) return;
+      setCasaCola(casaCola().concat({ row, foto: nv.foto || '' }));
+      rebuild();
+      toast('Sin señal: la casa quedó guardada en este celular y se enviará sola cuando haya conexión.', 7000);
+    }
+    nv = null;
+    renderAll();
+  },
+  async nvdel(el) {
+    const c = DB.NoVisitar.find(x => x.id === el.dataset.id);
+    if (!confirm('¿Borrar la casa “' + c.nota + '”?')) return;
+    setDB(await busy(api('borrarCasa', c.id), 'Borrando…'));
+  },
+  nvfoto(el) { const c = DB.NoVisitar.find(x => x.id === el.dataset.id); if (c) return openFoto(c); },
   s13print() { window.print(); },
   s13close() { $('#s13').classList.remove('show'); document.body.classList.remove('s13'); },
   async rangos() {
@@ -1633,6 +1813,12 @@ const INPUT = {
   nota(el) { infForm[el.dataset.id].nota = el.value; },
   quien(el) { store.set('territorios-quien', el.value); },
   s13anio(el) { s13Anio = +el.value; },
+  nvnota(el) { nv.nota = el.value; },
+  async nvfile(el) {
+    if (!el.files[0]) return;
+    try { nv.foto = await busy(shrinkPhoto(el.files[0]), 'Achicando la foto…'); } catch (e) { return; }
+    renderAll();
+  },
   'p-fecha'(el) { plan.fecha = el.value; },
   'p-hora'(el) { plan.hora = el.value; },
   'p-punto'(el) { plan.punto = el.value; },
@@ -1644,7 +1830,7 @@ const INPUT = {
   guiaop(el) { guide.setOpacity(+el.value); },
 };
 // "change" for controls that re-render or save; "input" for live text so typing never loses focus.
-const ON_CHANGE = ['inffecha', 'tcolor', 'guiafile', 'p-fecha', 'p-hora', 'p-punto', 's13anio'];
+const ON_CHANGE = ['inffecha', 'tcolor', 'guiafile', 'p-fecha', 'p-hora', 'p-punto', 's13anio', 'nvfile'];
 
 function onAct(e) {
   const el = e.target.closest('[data-act]');
@@ -1654,6 +1840,8 @@ panel.addEventListener('click', onAct);
 $('#pending').addEventListener('click', onAct);
 $('#cola').addEventListener('click', onAct);
 $('#s13').addEventListener('click', onAct);
+// Buttons inside map popups (Leaflet stops their clicks from bubbling, so listen on the way down).
+map.getContainer().addEventListener('click', onAct, true);
 $('#share').addEventListener('click', e => { if (e.target.id === 'share') ACT.shareclose(); else onAct(e); });
 panel.addEventListener('input', e => {
   const k = e.target.dataset.in;
@@ -1668,7 +1856,7 @@ $('#tabs').addEventListener('click', e => {
   const b = e.target.closest('button');
   if (!b) return;
   if (shapeLayer) ACT.bcancel();
-  tab = b.dataset.tab; editSel = null; addingPunto = false; verSalida = ''; showLogin = false;
+  tab = b.dataset.tab; editSel = null; addingPunto = false; verSalida = ''; showLogin = false; nv = null;
   map.closePopup();
   renderAll();
 });

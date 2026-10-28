@@ -12,8 +12,8 @@ The page itself holds no data and no link to the Sheet, so it's fine for this re
 
 | | How they get in | What they see |
 |---|---|---|
-| **Publicador** | Scans the app's QR code (or opens its link) | **Hoy** only: today's salida with time, meeting point, **Cómo llegar**, and the manzanas to work, plus the next days |
-| **Conductor** | Opens the personal link the admin sends them | **Hoy** + **Informe**: report what was done today or any earlier day. Reports carry their name automatically |
+| **Publicador** | Scans the app's QR code (or opens its link) | **Hoy** only: today's salida with time, meeting point, **Cómo llegar**, and the manzanas to work, plus the next days, and the houses that asked not to be visited |
+| **Conductor** | Opens the personal link the admin sends them | **Hoy** + **Informe**: report what was done today or any earlier day. Reports carry their name automatically. They can also register houses that asked not to be visited |
 | **Admin** | Taps *Entrar como administrador* at the bottom of Hoy and enters the PIN | Everything: **Hoy**, **Informe**, **Planificar**, **Registro**, **Editar** (manzanas, meeting points, conductores, paper-map overlay) |
 
 The Sheet enforces these rules, not only the page: without a conductor link or the PIN, the Sheet refuses informes and changes.
@@ -22,6 +22,11 @@ The Sheet enforces these rules, not only the page: without a conductor link or t
 
 - **Hoy:** big card(s) for today's salida, with **Cómo llegar** (Google Maps directions), **Ver en el mapa** and, in the salida's detail, **Compartir** (a picture or text to send). Today's manzanas are highlighted on the map. Tap any manzana to see when it was last worked; **◎** shows where you are; **Calles / Satélite** switches the background.
 - **Informe** (conductor, admin): mark each manzana *Completo*, *Parcial* or *No se hizo*.
+- **No visitar** (houses that asked not to be visited):
+  - Conductores and the admin register them from **Hoy** (*Registrar casa que no se visita*, or tap a manzana on the map) with the manzana, a required address or description, and an optional photo.
+  - The photo is shrunk on the phone to at most 120 KB before it's sent.
+  - Everyone sees them: a 🚫 on the manzana in the map, in the manzana's details, in the salida cards and in Informe. **Compartir** includes them in the text and picture.
+  - The admin edits or deletes them from **Registro → Casas que no se visitan**. Conductores can only add.
 - **Planificar** (admin): date and time, meeting point, conductor, manzanas with notes; territories sorted by time without being worked, with the map colored by last work.
 - **Registro** (admin): which territories were completed most and least recently, as a heat map and a list with each territory's history, plus the **S-13** (*Registro de asignación de territorio*) for any service year, ready to print or save as PDF.
   - A territory is **completed** on the day the last of its manzanas gets a *Completo* informe (*Parcial* doesn't count).
@@ -34,7 +39,8 @@ The Sheet enforces these rules, not only the page: without a conductor link or t
   - Either way it opens full-screen with its own icon.
 - **Works with weak signal:**
   - The app opens from the phone's copy and shows the last data it downloaded.
-  - Informes sent without signal are kept on the phone (a blue **"⏳ … espera señal"** bar) and go out by themselves when there's a connection.
+  - Informes and *No visitar* houses sent without signal are kept on the phone (a blue **"⏳ … espera señal"** bar) and go out by themselves when there's a connection.
+  - A house's photo, once seen, is kept on the phone too.
   - Map tiles already seen are kept too.
   - Planning and editing still need a connection.
 
@@ -46,7 +52,7 @@ The Sheet enforces these rules, not only the page: without a conductor link or t
 | `manzanas.js` | GitHub Pages | The 106 manzanas pre-outlined from OpenStreetMap streets |
 | `manifest.webmanifest`, `icons/` | GitHub Pages | What makes it installable |
 | `sw.js` | GitHub Pages | Offline copy of the app and map tiles |
-| `apps-script/Code.gs` | Apps Script | Reads and writes the Sheet, checks the PIN, adds the QR menu |
+| `apps-script/Code.gs` | Apps Script | Reads and writes the Sheet, checks the PIN, adds the QR menu. Photos of houses are kept in the *Fotos* sheet in pieces, since a cell holds at most 50,000 characters |
 | `apps-script/Qr.html` | Apps Script | The QR code window |
 
 ## Setup
@@ -98,7 +104,7 @@ New columns are added to the Sheet automatically the first time the app talks to
 
 ## Things to know
 
-- **The QR link is the key to the data.** Anyone with it can see the map, salidas, meeting points, conductor names and past informes. Share the QR only within the congregation.
+- **The QR link is the key to the data.** Anyone with it can see the map, salidas, meeting points, conductor names, past informes, and the houses not to visit with their photos. Share the QR only within the congregation.
 - **Conductor links are personal.** The secret part of each one is in the *Conductores* sheet (`clave` column); only the admin's app ever receives it.
 - **The PIN** is stored in the script's properties (set from the Sheet menu). After 10 wrong tries the Sheet refuses the PIN for 15 minutes. The admin's phone or computer remembers the PIN until **Salir**.
 - **Trying it without the Sheet:** open the page from `localhost`, or add `?demo` to the address. Data is then saved only in that browser, and the admin PIN is 1234.
