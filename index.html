@@ -168,6 +168,12 @@
   .nv-item { padding:3px 0; }
   .nv-item + .nv-item { border-top:1px solid #f5c2bd; }
   .nv-foto { display:block; max-width:100%; max-height:220px; border-radius:8px; border:1px solid var(--line); margin:4px 0 6px; }
+  .chips { margin:4px 0; }
+  .chip { display:inline-block; padding:2px 8px; margin:2px 4px 2px 0; border-radius:10px; font-size:13px; background:#f0f1f4; color:#4b5563; border:1px solid #d9dce3; white-space:nowrap; }
+  .chip.completo { background:#e3f5ea; color:#145c34; border-color:#9fd9b5; }
+  .chip.parcial { background:#fff0db; color:#7a4700; border-color:#f3c98b; }
+  .chip.no { background:#fde8e6; color:#8a1c12; border-color:#f3b5ae; }
+  .sal-done { background:#f6f7f9; }
   .heat-bar { height:10px; border-radius:3px; border:1px solid rgba(0,0,0,.15); margin-top:8px; }
   .heat-ends { display:flex; justify-content:space-between; gap:8px; font-size:12px; color:var(--muted); }
   .terr-row details summary { margin:2px 0 0; }
@@ -228,7 +234,7 @@
 <script src="manzanas.js"></script>
 <script>
 // ---------- settings ----------
-const VERSION = '13 · 27/10/2026'; // shown at the bottom of Editar; bump when changing this file
+const VERSION = '14 · 28/10/2026'; // shown at the bottom of Editar; bump when changing this file
 const PALETTE = ['#fff27a','#f7a8c8','#f9b26b','#ffd6b3','#b9dd8f','#80e0e8','#bba0ec','#a9c8f0','#d0d0d0','#f3df5a','#eaa3f2','#a3dcbc'];
 const PLAZA = [-17.794426, -63.134013];
 const RANGOS_DEFAULT = { verde: 30, amarillo: 90 }; // days; editable in Planificar (saved in Config)
@@ -238,6 +244,9 @@ const ESTADOS = { completo: 'Completo', parcial: 'Parcial', no: 'No se hizo' };
 // Registro heat map: one blue, light (completed most recently) to dark (longest ago). Never completed is gray.
 const HEAT = ['#cde2fb', '#b7d3f6', '#9ec5f4', '#86b6ef', '#6da7ec', '#5598e7', '#3987e5', '#2a78d6', '#256abf', '#1c5cab', '#184f95', '#104281', '#0d366b'];
 const NEVER = '#c4c4c4';
+// What an informe looks like on the map and in the salida cards (always color + icon + text).
+const ESTADO_COLOR = { completo: '#2ecc71', parcial: '#f39c12', no: '#e74c3c' };
+const ESTADO_ICON = { completo: '✓', parcial: '◐', no: '✕' };
 const TABLE_NAMES = ['Bloques', 'Territorios', 'Puntos', 'Salidas', 'Informes', 'Config', 'Conductores', 'NoVisitar'];
 const FOTO_MAX = 120 * 1024; // bytes: pictures of houses are shrunk until they fit
 
@@ -791,7 +800,10 @@ function highlightSet() {
   if (nv) return new Set(nv.bloque ? [nv.bloque] : []);
   if (tab === 'informe') return new Set(Object.keys(infForm));
   if (tab === 'hoy') {
-    const list = shownSalida() ? [shownSalida()] : todaySalidas();
+    if (shownSalida()) return new Set(salidaBlocks(shownSalida()));
+    // Today's salidas still to be reported, else the next one (the reported ones show their result instead).
+    const hoy = ymd(new Date()), pend = todaySalidas().filter(x => !informada(x));
+    const list = pend.length ? pend : DB.Salidas.filter(x => x.fecha > hoy).sort(bySalidaTime).slice(0, 1);
     return list.length ? new Set(list.flatMap(salidaBlocks)) : null;
   }
   if (tab === 'planificar') return new Set(plan.bloques);
@@ -806,18 +818,19 @@ function renderMap() {
   const sat = base === 'satelite';
   const unsaved = PEND.save.Bloques || {};
   const byStatus = colorBy === 'estado' && tab === 'planificar';
+  const rep = tab === 'hoy' && !nv ? hoyInformes() : {};
   BL.forEach(b => {
-    const sel = hi && hi.has(b.id);
-    const dim = hi && !sel && (tab === 'informe' || tab === 'hoy');
+    const sel = hi && hi.has(b.id), r = rep[b.id];
+    const dim = hi && !sel && !r && (tab === 'informe' || tab === 'hoy');
     const poly = L.polygon(b.coords, {
       color: sel ? '#c0392b' : unsaved[b.id] ? '#e67e22' : sat ? '#fff' : '#4a4a4a',
       weight: sel ? 3.5 : unsaved[b.id] ? 2.5 : sat ? 1.5 : 1,
       dashArray: unsaved[b.id] && !sel ? '6 4' : null,
-      fillColor: byStatus ? statusColor(b.id) : tab === 'registro' ? HEATC[b.t] : tColor(b.t),
+      fillColor: r ? ESTADO_COLOR[r.estado] : byStatus ? statusColor(b.id) : tab === 'registro' ? HEATC[b.t] : tColor(b.t),
       fillOpacity: dim ? (sat ? 0.1 : 0.25) : sat ? 0.4 : 0.7,
     });
     const nvs = casasDe(b.id).length;
-    poly.bindTooltip(b.n + (nvs ? '<span class="nv-b" title="No visitar">🚫' + (nvs > 1 ? nvs : '') + '</span>' : ''), { permanent: true, direction: 'center', className: 'lbl-b' });
+    poly.bindTooltip(b.n + (r ? ' ' + ESTADO_ICON[r.estado] : '') + (nvs ? '<span class="nv-b" title="No visitar">🚫' + (nvs > 1 ? nvs : '') + '</span>' : ''), { permanent: true, direction: 'center', className: 'lbl-b' });
     poly.on('click', e => onBlockClick(b, e));
     poly._bid = b.id;
     gBloques.addLayer(poly);
@@ -1135,17 +1148,52 @@ function fitSalida(s) {
   if (pts.length) map.fitBounds(L.latLngBounds(pts), { padding: [40, 40], maxZoom: 18 });
 }
 
+/** Each manzana of the salida → its informe that day (null if none yet). */
+function salidaInformes(s) {
+  const por = {};
+  salidaBlocks(s).filter(id => BYID[id]).forEach(id => { por[id] = DB.Informes.find(r => r.fecha === s.fecha && r.bloque === id) || null; });
+  return por;
+}
+/** A salida is reported once every one of its manzanas has an informe for that day. */
+function informada(s) { const por = salidaInformes(s), ids = Object.keys(por); return ids.length > 0 && ids.every(id => por[id]); }
+/** In Hoy, the manzanas already reported: those of the salida being shown, or of today's salidas. */
+function hoyInformes() {
+  const s = shownSalida(), out = {};
+  (s ? [s] : todaySalidas()).forEach(x => Object.assign(out, salidaInformes(x)));
+  Object.keys(out).forEach(id => { if (!out[id]) delete out[id]; });
+  return out;
+}
+/** ✓ T1·M2 / ◐ T1·M3 50% / ✕ T1·M4 for the reported manzanas (all: also those without an informe). */
+function estadoChips(s, all) {
+  const por = salidaInformes(s);
+  return '<div class="chips">' + Object.keys(por).filter(id => all || por[id]).map(id => BYID[id]).sort((a, b) => a.t - b.t || a.n - b.n).map(b => {
+    const r = por[b.id];
+    return r ? '<span class="chip ' + esc(r.estado) + '" title="' + esc(ESTADOS[r.estado]) + '">' + ESTADO_ICON[r.estado] + ' ' + bShort(b) + (r.porcentaje ? ' ' + esc(r.porcentaje) + '%' : '') + '</span>'
+      : '<span class="chip" title="Sin informe">' + bShort(b) + ' · falta</span>';
+  }).join('') + '</div>';
+}
+const ESTADO_LEYENDA = '<p class="muted">✓ completo · ◐ parcial · ✕ no se hizo</p>';
+
+/** A salida already reported, in Hoy: small, with how each manzana went. */
+function salidaHecha(s) {
+  return '<div class="card sal-done"><div class="card-h">✓ Informada' + (s.hora ? ' · ' + esc(s.hora) : '') + (s.punto ? ' · ' + esc(puntoName(s.punto)) : '') + '</div>' +
+    (s.conductor ? '<div class="muted">Conductor: ' + esc(s.conductor) + '</div>' : '') + estadoChips(s, true) +
+    '<div class="actions"><button class="b small" data-act="ver" data-id="' + s.id + '">Ver en el mapa</button>' +
+    (canReport() ? '<button class="b small" data-act="goinf" data-v="' + s.fecha + '">Corregir informe</button>' : '') + '</div></div>';
+}
+
 function salidaPanel(s) {
-  const dest = salidaDest(s);
+  const dest = salidaDest(s), hechas = Object.values(salidaInformes(s)).filter(Boolean).length;
   return '<button class="b small" data-act="verback">← Volver</button>' +
     '<div class="sal-h">' + esc(when(s)) + '</div>' +
     (s.punto ? '<div class="sal-d">📍 Punto de salida: <b>' + esc(puntoName(s.punto)) + '</b></div>' : '<div class="sal-d muted">Sin punto de salida.</div>') +
     (s.conductor ? '<div class="sal-d">Conductor: <b>' + esc(s.conductor) + '</b></div>' : '') +
     (s.notas ? '<div class="sal-d">' + esc(s.notas) + '</div>' : '') +
     '<label>Manzanas</label>' + salidaSummary(s) + nvList(salidaBlocks(s)) +
+    (hechas ? '<label>' + (informada(s) ? '✓ Informada' : 'Informe') + '</label>' + estadoChips(s, true) + ESTADO_LEYENDA : '') +
     '<div class="actions">' + (dest ? '<a class="b primary" href="' + directionsUrl(dest) + '" target="_blank" rel="noopener">Cómo llegar</a>' : '') +
     '<button class="b" data-act="share">Compartir</button>' +
-    (canReport() ? '<button class="b" data-act="goinf" data-v="' + s.fecha + '">Informar</button>' : '') + '</div>' +
+    (canReport() ? '<button class="b" data-act="goinf" data-v="' + s.fecha + '">' + (hechas ? 'Corregir informe' : 'Informar') + '</button>' : '') + '</div>' +
     '<p class="muted">“Cómo llegar” abre Google Maps con el camino ' + (s.punto ? 'hasta el punto de salida' : 'hasta las manzanas') + '.</p>';
 }
 
@@ -1157,6 +1205,7 @@ function salidaCard(s, withDate) {
     (s.conductor ? '<div class="sal-d">Conductor: ' + esc(s.conductor) + '</div>' : '') +
     (s.notas ? '<div class="sal-d">' + esc(s.notas) + '</div>' : '') +
     '<div class="sal-d"><b>Manzanas:</b></div>' + salidaSummary(s) + nvList(salidaBlocks(s)) +
+    (Object.values(salidaInformes(s)).some(Boolean) ? '<div class="sal-d"><b>Ya informadas:</b></div>' + estadoChips(s, false) : '') +
     '<div class="actions">' + (dest ? '<a class="b primary" href="' + directionsUrl(dest) + '" target="_blank" rel="noopener">Cómo llegar</a>' : '') +
     '<button class="b" data-act="ver" data-id="' + s.id + '">Ver en el mapa</button>' +
     (canReport() ? '<button class="b" data-act="goinf" data-v="' + s.fecha + '">Informar</button>' : '') + '</div></div>';
@@ -1166,11 +1215,13 @@ function hoyPanel() {
   const s = shownSalida();
   if (s) return salidaPanel(s);
   const hoy = ymd(new Date()), today = todaySalidas();
+  const pend = today.filter(x => !informada(x)), hechas = today.filter(informada);
   const later = DB.Salidas.filter(x => x.fecha > hoy).sort(bySalidaTime);
-  const rest = today.length ? later : later.slice(1);
-  return (today.length ? '<h2>Hoy · ' + fmt(hoy) + '</h2>' + today.map(x => salidaCard(x, false)).join('')
-      : '<h2>Hoy no hay salida</h2>' + (later.length ? '<p class="muted">La próxima:</p>' + salidaCard(later[0], true)
-        : '<p class="muted">Todavía no hay salidas planificadas.</p>')) +
+  const rest = pend.length ? later : later.slice(1);
+  return (pend.length ? '<h2>Hoy · ' + fmt(hoy) + '</h2>' + pend.map(x => salidaCard(x, false)).join('')
+      : '<h2>' + (hechas.length > 1 ? 'Las salidas de hoy ya se informaron' : hechas.length ? 'La salida de hoy ya se informó' : 'Hoy no hay salida') + '</h2>' +
+        (later.length ? '<p class="muted">La próxima:</p>' + salidaCard(later[0], true) : '<p class="muted">Todavía no hay salidas planificadas.</p>')) +
+    (hechas.length ? '<h3>Ya informadas hoy</h3>' + hechas.map(salidaHecha).join('') + ESTADO_LEYENDA : '') +
     (rest.length ? '<h3>Próximos días</h3>' + rest.slice(0, 8).map(x => '<div class="list-item click" data-act="ver" data-id="' + x.id + '"><div><b>' + esc(when(x)) + '</b>' +
       (x.punto ? ' · ' + esc(puntoName(x.punto)) : '') + '<div class="muted">' + esc(describe(salidaBlocks(x))) + '</div></div><span class="muted">›</span></div>').join('') : '') +
     '<p class="muted">Toca una manzana en el mapa para ver cuándo se trabajó. El botón ◎ muestra dónde estás.</p>' +
@@ -1245,14 +1296,14 @@ function territoryRows() {
 
 function planPanel() {
   const hoy = ymd(new Date()), g = rangos();
-  const prox = DB.Salidas.filter(s => s.fecha >= hoy).sort(bySalidaTime);
-  const recientes = DB.Salidas.filter(s => s.fecha < hoy && daysSince(s.fecha) <= 21).sort((a, b) => bySalidaTime(b, a));
+  const prox = DB.Salidas.filter(s => s.fecha >= hoy && !informada(s)).sort(bySalidaTime);
+  const recientes = DB.Salidas.filter(s => (s.fecha < hoy || informada(s)) && daysSince(s.fecha) <= 21).sort((a, b) => bySalidaTime(b, a));
   const status = s => salidaBlocks(s).map(id => {
-    const rs = DB.Informes.filter(r => r.salida === s.id && r.bloque === id);
+    const rs = DB.Informes.filter(r => r.fecha === s.fecha && r.bloque === id);
     return BYID[id] ? informeIcon(rs[rs.length - 1]) + ' ' + bShort(BYID[id]) : '';
   }).join(' &nbsp;');
   const item = s => '<div class="list-item"><div><b>' + esc(when(s)) + '</b>' + (s.punto ? ' · ' + esc(puntoName(s.punto)) : '') +
-    (s.fecha < hoy ? '<div>' + status(s) + '</div>' : salidaSummary(s)) +
+    (s.fecha < hoy || informada(s) ? '<div>' + status(s) + '</div>' : salidaSummary(s)) +
     (s.conductor ? '<div class="muted">Conductor: ' + esc(s.conductor) + '</div>' : '') + '</div>' +
     '<div style="white-space:nowrap">' + (s.fecha >= hoy ? '<button class="b small" data-act="ver" data-id="' + s.id + '">Ver</button> ' : '') + '<button class="b small" data-act="planedit" data-id="' + s.id + '">Editar</button> ' +
     '<button class="b small danger" data-act="plandel" data-id="' + s.id + '">Borrar</button></div></div>';
@@ -1939,7 +1990,8 @@ window.addEventListener('beforeunload', e => { if (pendingCount()) { e.preventDe
 function fitStart() {
   map.invalidateSize();
   if (shownSalida()) return fitSalida(shownSalida());
-  const today = todaySalidas().flatMap(salidaPts);
+  const pend = todaySalidas().filter(x => !informada(x));
+  const today = (pend.length ? pend : todaySalidas()).flatMap(salidaPts);
   const pts = today.length ? today : BL.length ? BL.flatMap(b => b.coords) : (window.MANZANAS || []).flatMap(c => c.coords);
   if (pts.length) map.fitBounds(L.latLngBounds(pts), { padding: [30, 30], maxZoom: 17 });
 }
