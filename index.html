@@ -87,6 +87,8 @@
   .seg button { font:inherit; font-size:13px; border:0; background:#fff; padding:6px 10px; cursor:pointer; color:var(--fg); }
   .seg button + button { border-left:1px solid #cfd4dc; }
   .seg button.on { background:var(--accent); color:#fff; }
+  .seg-wrap { flex-wrap:wrap; }
+  .ctl-area { margin-top:6px !important; flex-wrap:wrap; max-width:60vw; }
   .seg button.on[data-v=completo] { background:#1e8e4e; }
   .seg button.on[data-v=parcial] { background:#d9820b; }
   .seg button.on[data-v=no] { background:#b42318; }
@@ -235,7 +237,7 @@
 <script src="manzanas.js"></script>
 <script>
 // ---------- settings ----------
-const VERSION = '17 · 28/10/2026'; // shown at the bottom of Editar; bump when changing this file
+const VERSION = '18 · 28/10/2026'; // shown at the bottom of Editar; bump when changing this file
 const PALETTE = ['#fff27a','#f7a8c8','#f9b26b','#ffd6b3','#b9dd8f','#80e0e8','#bba0ec','#a9c8f0','#d0d0d0','#f3df5a','#eaa3f2','#a3dcbc'];
 const PLAZA = [-17.794426, -63.134013];
 // Rough placement of the paper map over the streets: top-left, top-right, bottom-left corners.
@@ -746,6 +748,43 @@ const BaseControl = L.Control.extend({
   refresh() { this._div.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === base)); },
 });
 const baseCtl = new BaseControl().addTo(map);
+
+// ---------- areas: separate parts of the territory (e.g. an isolated territory in another neighborhood) ----------
+// Config "areas" = { areas: [{id, nombre}], de: {territorio: area id} }. The first area is the main one;
+// territories not assigned to another area belong to it.
+function areasCfg() {
+  const c = safeJSON(CONFIG.areas, null) || {};
+  return { areas: c.areas && c.areas.length ? c.areas : [{ id: 'principal', nombre: 'Territorios' }], de: c.de || {} };
+}
+function areaDe(t) { const c = areasCfg(), a = c.de[t]; return a && c.areas.some(x => x.id === a) ? a : c.areas[0].id; }
+function areaActual() { const c = areasCfg(), a = store.get('predi-area-' + KEY); return c.areas.some(x => x.id === a) ? a : c.areas[0].id; }
+function saveAreas(c) { stage('Config', { id: 'areas', valor: JSON.stringify(c) }); }
+/** Areas that have manzanas: the map switch only shows when there are two or more. */
+function areasConManzanas() { const used = new Set(BL.map(b => areaDe(b.t))); return areasCfg().areas.filter(a => used.has(a.id)); }
+function fitArea(id) {
+  const pts = BL.filter(b => areaDe(b.t) === id).flatMap(b => b.coords);
+  if (pts.length) map.fitBounds(L.latLngBounds(pts), { padding: [30, 30], maxZoom: 17 });
+}
+const AreaControl = L.Control.extend({
+  options: { position: 'topright' },
+  onAdd() {
+    const div = L.DomUtil.create('div', 'ctl ctl-area');
+    L.DomEvent.disableClickPropagation(div);
+    div.addEventListener('click', e => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      store.set('predi-area-' + KEY, b.dataset.v); fitArea(b.dataset.v); this.refresh();
+    });
+    this._div = div;
+    return div;
+  },
+  refresh() {
+    const list = areasConManzanas(), cur = areaActual();
+    this._div.style.display = list.length > 1 ? '' : 'none';
+    this._div.innerHTML = list.map(a => '<button data-v="' + esc(a.id) + '" class="' + (a.id === cur ? 'on' : '') + '">' + esc(a.nombre) + '</button>').join('');
+  },
+});
+const areaCtl = new AreaControl().addTo(map);
 function setBase(v) {
   if (v === base) return;
   map.removeLayer(BASES[base]); base = v; BASES[base].addTo(map);
@@ -819,6 +858,7 @@ function highlightSet() {
 }
 
 function renderMap() {
+  areaCtl.refresh();
   if (shapeLayer) return; // don't redraw while a shape is being edited
   gBloques.clearLayers(); gTerr.clearLayers(); gPuntos.clearLayers(); gManzanas.clearLayers(); gTemp.clearLayers();
   const hi = highlightSet();
@@ -1503,9 +1543,9 @@ function openS13() {
 }
 
 function editPanel() {
-  const sub = '<div class="seg" style="margin-bottom:10px">' + [['bloques', 'Manzanas'], ['puntos', 'Puntos'], ['conductores', 'Conductores'], ['guia', 'Imagen guía']]
+  const sub = '<div class="seg seg-wrap" style="margin-bottom:10px">' + [['bloques', 'Manzanas'], ['puntos', 'Puntos'], ['areas', 'Áreas'], ['conductores', 'Conductores'], ['guia', 'Imagen guía']]
     .map(([k, l]) => '<button data-act="sub" data-v="' + k + '" class="' + (editSub === k ? 'on' : '') + '">' + l + '</button>').join('') + '</div>';
-  const intro = editSub === 'bloques' || editSub === 'puntos' ? '<p class="muted">Los cambios se juntan arriba en <b>“cambios sin guardar”</b>. Al terminar, toca <b>Guardar todo</b> (o <b>Descartar</b> para deshacerlos).</p>' : '';
+  const intro = editSub === 'bloques' || editSub === 'puntos' || editSub === 'areas' ? '<p class="muted">Los cambios se juntan arriba en <b>“cambios sin guardar”</b>. Al terminar, toca <b>Guardar todo</b> (o <b>Descartar</b> para deshacerlos).</p>' : '';
   let body = '';
   if (editSub === 'conductores') {
     const cs = DB.Conductores.slice().sort((a, b) => a.nombre.localeCompare(b.nombre));
@@ -1540,6 +1580,18 @@ function editPanel() {
     body += '<p class="muted">' + BL.length + ' manzanas hechas · ' + free + ' grises sin asignar</p>' +
       (ts.length ? '<h3>Colores de territorios</h3><div style="display:flex;flex-wrap:wrap;gap:6px 10px">' + ts.map(t => '<label style="margin:0;display:flex;align-items:center;gap:4px;color:var(--fg)">T' + t +
         ' <input type="color" data-in="tcolor" data-t="' + t + '" value="' + tColor(t) + '"></label>').join('') + '</div>' : '');
+  } else if (editSub === 'areas') {
+    const c = areasCfg(), ts = [...new Set(BL.map(b => b.t))].sort((a, b) => a - b);
+    body = '<p>Un área es una parte del territorio que queda aparte (por ejemplo, un territorio aislado en otro barrio). ' +
+      'Con dos o más áreas, en el mapa aparece un botón para pasar de una a otra, y la app abre en el área elegida.</p>' +
+      '<h3>Áreas</h3>' +
+      c.areas.map((a, i) => '<div class="sel-row"><input type="text" data-in="arname" data-id="' + esc(a.id) + '" value="' + esc(a.nombre) + '">' +
+        (i ? '<button class="b small danger" data-act="ardel" data-id="' + esc(a.id) + '">Quitar</button>' : '<span class="muted" style="white-space:nowrap">principal</span>') + '</div>').join('') +
+      '<div class="sel-row"><input type="text" id="ar-new" placeholder="Nombre del área nueva (ej.: Caimanes)"><button class="b primary" data-act="aradd">Agregar</button></div>' +
+      (c.areas.length > 1 ? '<h3>Territorios</h3><p class="muted">Los territorios que no se cambian quedan en el área principal (' + esc(c.areas[0].nombre) + ').</p>' +
+        ts.map(t => '<div class="sel-row"><b>T' + t + '</b><select data-in="arterr" data-t="' + t + '">' +
+          c.areas.map(a => '<option value="' + esc(a.id) + '"' + (areaDe(t) === a.id ? ' selected' : '') + '>' + esc(a.nombre) + '</option>').join('') + '</select></div>').join('')
+        : '');
   } else if (editSub === 'puntos') {
     const p = editSel && editSel.kind === 'punto' ? (DB.Puntos.find(x => x.id === editSel.id) || editSel) : null;
     body = (p ? '<div class="card"><div class="card-h">' + (p.id ? 'Punto ' + esc(p.letra) : 'Punto nuevo') + '</div>' +
@@ -1854,6 +1906,21 @@ const ACT = {
   tpick(el) { toggleTerritory(+el.dataset.v); },
   tzoom(el) { zoomTerritory(+el.dataset.v); },
   s13() { openS13(); },
+  aradd() {
+    const nombre = $('#ar-new').value.trim();
+    if (!nombre) return toast('Escribe el nombre del área.');
+    const c = areasCfg();
+    if (c.areas.some(a => a.nombre.toLowerCase() === nombre.toLowerCase())) return toast('Ya hay un área con ese nombre.');
+    c.areas.push({ id: uid(), nombre });
+    saveAreas(c);
+  },
+  ardel(el) {
+    const c = areasCfg(), a = c.areas.find(x => x.id === el.dataset.id);
+    if (!confirm('¿Quitar el área “' + a.nombre + '”? Sus territorios pasan al área principal (' + c.areas[0].nombre + ').')) return;
+    c.areas = c.areas.filter(x => x.id !== a.id);
+    Object.keys(c.de).forEach(t => { if (c.de[t] === a.id) delete c.de[t]; });
+    saveAreas(c);
+  },
   bhist(el) {
     const b = BYID[el.dataset.id];
     if (!b) return;
@@ -2014,10 +2081,20 @@ const INPUT = {
   'p-nb'(el) { plan.notasB[el.dataset.id] = el.value; },
   tcolor(el) { stage('Territorios', { id: el.dataset.t, color: el.value, notas: '' }); },
   guiafile(el) { if (el.files[0]) loadGuide(el.files[0]); },
+  arname(el) {
+    const c = areasCfg(), a = c.areas.find(x => x.id === el.dataset.id), nombre = el.value.trim();
+    if (!nombre) return renderAll();
+    a.nombre = nombre; saveAreas(c);
+  },
+  arterr(el) {
+    const c = areasCfg();
+    if (el.value === c.areas[0].id) delete c.de[el.dataset.t]; else c.de[el.dataset.t] = el.value;
+    saveAreas(c);
+  },
   guiaop(el) { guide.setOpacity(+el.value); },
 };
 // "change" for controls that re-render or save; "input" for live text so typing never loses focus.
-const ON_CHANGE = ['inffecha', 'tcolor', 'guiafile', 'p-fecha', 'p-hora', 'p-punto', 's13anio', 'nvfile'];
+const ON_CHANGE = ['inffecha', 'tcolor', 'guiafile', 'p-fecha', 'p-hora', 'p-punto', 's13anio', 'nvfile', 'arname', 'arterr'];
 
 function onAct(e) {
   const el = e.target.closest('[data-act]');
@@ -2080,7 +2157,8 @@ function fitStart() {
   if (shownSalida()) return fitSalida(shownSalida());
   const pend = todaySalidas().filter(x => !informada(x));
   const today = (pend.length ? pend : todaySalidas()).flatMap(salidaPts);
-  const pts = today.length ? today : BL.length ? BL.flatMap(b => b.coords) : (window.MANZANAS || []).flatMap(c => c.coords);
+  if (!today.length && BL.length) return fitArea(areaActual()); // no salida today: the area last chosen (the main one at first)
+  const pts = today.length ? today : (window.MANZANAS || []).flatMap(c => c.coords);
   if (pts.length) map.fitBounds(L.latLngBounds(pts), { padding: [30, 30], maxZoom: 17 });
 }
 /** Accepts the app link from the QR, the Apps Script /exec URL, or just the id. */
