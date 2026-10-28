@@ -116,7 +116,7 @@
   #toast.show { opacity:.95; }
   #saving { position:fixed; inset:0; background:rgba(255,255,255,.6); display:none; align-items:center; justify-content:center; z-index:2500; }
   body.busy #saving { display:flex; }
-  #saving .box { background:#1d2330; color:#fff; padding:14px 22px; border-radius:12px; display:flex; align-items:center; gap:12px; font-size:15px; box-shadow:0 6px 24px rgba(0,0,0,.25); }
+  #saving .box { background:#1d2330; color:#fff; padding:14px 22px; border-radius:12px; display:flex; align-items:center; gap:12px; font-size:15px; box-shadow:0 6px 24px rgba(0,0,0,.25); flex-wrap:wrap; justify-content:center; max-width:90vw; }
   #saving .spin { width:20px; height:20px; border:3px solid rgba(255,255,255,.3); border-top-color:#fff; border-radius:50%; animation:spin .8s linear infinite; }
   @keyframes spin { to { transform:rotate(360deg); } }
   #pending { display:none; align-items:center; gap:8px; padding:6px 12px; background:#fff1e0; color:#7a4100; font-size:14px; border-bottom:1px solid #f3c99a; flex-wrap:wrap; }
@@ -222,7 +222,7 @@
   <div id="map"></div>
   <aside id="panel"></aside>
 </main>
-<div id="saving"><div class="box"><div class="spin"></div><span id="saving-msg">Guardando…</span></div></div>
+<div id="saving"><div class="box"><div class="spin"></div><span id="saving-msg">Guardando…</span><button class="b small" id="saving-skip" hidden>Seguir sin esperar</button></div></div>
 <div id="toast"></div>
 <div id="share"><div class="box"></div></div>
 <div id="s13"></div>
@@ -238,7 +238,7 @@
 <script src="manzanas.js"></script>
 <script>
 // ---------- settings ----------
-const VERSION = '20 · 28/10/2026'; // shown at the bottom of Editar; bump when changing this file
+const VERSION = '21 · 28/10/2026'; // shown at the bottom of Editar; bump when changing this file
 const PALETTE = ['#fff27a','#f7a8c8','#f9b26b','#ffd6b3','#b9dd8f','#80e0e8','#bba0ec','#a9c8f0','#d0d0d0','#f3df5a','#eaa3f2','#a3dcbc'];
 const PLAZA = [-17.794426, -63.134013];
 // Rough placement of the paper map over the streets: top-left, top-right, bottom-left corners.
@@ -379,12 +379,24 @@ function answer(out) {
   if (!out.ok) throw new Error(out.error);
   return out.data;
 }
-async function busy(promise, msg) {
+/**
+ * Covers the screen while the app reads from or writes to the Sheet (calls that overlap share it).
+ * opts.skip: after a few seconds offer "Seguir sin esperar" (a load that has a saved copy to fall back on;
+ * its data still arrives when the Sheet answers). opts.quiet: no toast on error (the caller shows its own).
+ */
+let busyN = 0;
+async function busy(promise, msg, opts = {}) {
+  busyN++;
   $('#saving-msg').textContent = msg || 'Guardando…';
+  $('#saving-skip').hidden = true;
   document.body.classList.add('busy');
+  const t = opts.skip ? setTimeout(() => { $('#saving-skip').hidden = false; }, 4000) : null;
   try { return await promise; }
-  catch (e) { toast((e && e.message) || String(e)); throw e; }
-  finally { document.body.classList.remove('busy'); }
+  catch (e) { if (!opts.quiet) toast((e && e.message) || String(e)); throw e; }
+  finally {
+    clearTimeout(t);
+    if (--busyN === 0) document.body.classList.remove('busy');
+  }
 }
 async function saveRows(table, rows, msg) { setDB(await busy(api('save', table, rows), msg)); }
 async function removeRows(table, ids) { setDB(await busy(api('remove', table, ids), 'Borrando…')); }
@@ -456,16 +468,17 @@ async function flushCola(manual) {
   const rows = cola(), borrar = colaBorrar(), casas = casaCola();
   if ((!rows.length && !borrar.length && !casas.length) || flushing || (!manual && !canReport())) return;
   flushing = true;
+  const call = (fn, ...args) => manual ? busy(api(fn, ...args), 'Enviando lo que esperaba señal…', { quiet: true }) : api(fn, ...args);
   try {
     if (rows.length || borrar.length) {
-      const data = await api('informes', rows, borrar);
+      const data = await call('informes', rows, borrar);
       const sent = new Set(rows.map(r => JSON.stringify(r))); // a row changed again meanwhile stays queued
       setCola(cola().filter(r => !sent.has(JSON.stringify(r))));
       setColaBorrar(colaBorrar().filter(id => !borrar.includes(id)));
       setDB(data);
     }
     for (const q of casas) {
-      const data = await api('casa', q.row, q.foto);
+      const data = await call('casa', q.row, q.foto);
       setCasaCola(casaCola().filter(x => x.row.id !== q.row.id));
       setDB(data);
     }
@@ -2131,6 +2144,7 @@ panel.addEventListener('click', onAct);
 $('#pending').addEventListener('click', onAct);
 $('#cola').addEventListener('click', onAct);
 $('#s13').addEventListener('click', onAct);
+$('#saving-skip').addEventListener('click', () => document.body.classList.remove('busy')); // the load goes on in the background
 // Buttons inside map popups (Leaflet stops their clicks from bubbling, so listen on the way down).
 map.getContainer().addEventListener('click', onAct, true);
 $('#share').addEventListener('click', e => { if (e.target.id === 'share') ACT.shareclose(); else onAct(e); });
@@ -2160,11 +2174,11 @@ async function refresh(manual) {
   loading = true;
   $('#refresh').classList.add('spin');
   try {
-    setDB(await api('getAll'));
+    setDB(await busy(api('getAll'), manual ? 'Trayendo los últimos datos…' : 'Actualizando los datos…', { skip: true, quiet: !manual }));
     lastLoad = Date.now();
     if (manual) toast('Datos actualizados.');
   } catch (e) {
-    if (manual) toast(e.message);
+    // busy() already said what went wrong when ↻ was tapped; the automatic refreshes stay quiet
   } finally {
     loading = false;
     $('#refresh').classList.remove('spin');
@@ -2205,7 +2219,7 @@ async function start() {
   const saved = safeJSON(store.get('predi-datos-' + KEY), null);
   if (saved) { SERVER = saved; rebuild(); fitStart(); }
   try {
-    const data = await (saved ? api('getAll') : busy(api('getAll'), 'Cargando…'));
+    const data = await busy(api('getAll'), 'Cargando los datos de la hoja…', { skip: !!saved, quiet: !!saved });
     setDB(data);
     lastLoad = Date.now();
     if (!saved) fitStart();
