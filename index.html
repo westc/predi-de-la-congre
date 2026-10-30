@@ -21,7 +21,8 @@
   window.START_SALIDA = q.get('salida') || '';
   window.DEMO = q.has('demo') || (!id && /^(localhost|127\.0\.0\.1)$/.test(location.hostname));
   var key = window.DEMO ? 'demo' : id, c = q.get('c');
-  if (ok(c, 16)) set('predi-c-' + key, c); else c = get('predi-c-' + key) || '';
+  // A conductor who chose "Salir" stays out even if the address still has their key (an app on the home screen).
+  if (ok(c, 16) && c !== get('predi-c-salio-' + key)) set('predi-c-' + key, c); else c = get('predi-c-' + key) || '';
   window.CONDUCTOR_KEY = c;
   if (id && !q.has('demo')) history.replaceState(null, '', location.pathname + '?api=' + id + (c ? '&c=' + c : ''));
 })();
@@ -188,6 +189,7 @@
   .mes-nav { display:flex; align-items:center; gap:10px; margin:4px 0 8px; font-size:calc(16px * var(--k)); }
   .pg-dia { margin:14px 0 2px; font-weight:700; color:var(--brand); }
   .warn { color:#b45309; }
+  .tag.pend { background:#fff1e0; color:#7a4100; }
   /* the printed program (Programa → Imprimir); sizes in pt so the text size setting doesn't change it */
   .pg-page { background:#fff; color:#000; width:190mm; margin:12px auto; padding:10mm; box-shadow:0 2px 10px rgba(0,0,0,.2); font:10pt Arial,Helvetica,sans-serif; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
   .pg-sup { text-align:center; color:#999; font-weight:700; font-size:11pt; }
@@ -262,7 +264,7 @@
 <script src="manzanas.js"></script>
 <script>
 // ---------- settings ----------
-const VERSION = '27 · 30/10/2026'; // shown at the bottom of Editar; bump when changing this file
+const VERSION = '28 · 30/10/2026'; // shown at the bottom of Editar; bump when changing this file
 const PALETTE = ['#fff27a','#f7a8c8','#f9b26b','#ffd6b3','#b9dd8f','#80e0e8','#bba0ec','#a9c8f0','#d0d0d0','#f3df5a','#eaa3f2','#a3dcbc'];
 const PLAZA = [-17.794426, -63.134013];
 // Rough placement of the paper map over the streets: top-left, top-right, bottom-left corners.
@@ -485,6 +487,7 @@ function setWho(w) {
     if (!DEMO) history.replaceState(null, '', location.pathname + '?api=' + API_ID);
   }
   if (w.aviso) toast(w.aviso, 7000);
+  if (w.role === 'conductor') { store.set('predi-c-guardado-' + KEY, ''); store.set('predi-c-salio-' + KEY, ''); }
   const changed = w.role !== WHO.role || (w.nombre || '') !== WHO.nombre;
   WHO = { role: w.role, nombre: w.nombre || '' };
   store.set('predi-who-' + KEY, JSON.stringify(WHO));
@@ -697,19 +700,41 @@ function stageRemove(table, id) {
 }
 async function commitAll() {
   const n = pendingCount();
-  const changes = { save: {}, remove: PEND.remove };
-  Object.keys(PEND.save).forEach(t => { changes.save[t] = Object.values(PEND.save[t]); });
-  const data = await busy(api('commit', changes), 'Guardando ' + n + (n === 1 ? ' cambio…' : ' cambios…'));
-  PEND = { save: {}, remove: {} };
-  setDB(data);
+  await busy((async () => {
+    // Salidas changed in Programa keep the manzanas chosen meanwhile, so bring those in first.
+    if (Object.values(PEND.save.Salidas || {}).some(r => r._prog)) { try { await sincronizar(); } catch (e) { /* save anyway */ } }
+    const changes = { save: {}, remove: PEND.remove };
+    Object.keys(PEND.save).forEach(t => { changes.save[t] = Object.values(PEND.save[t]).map(r => paraGuardar(t, r)); });
+    const data = await api('commit', changes);
+    PEND = { save: {}, remove: {} };
+    setDB(data);
+  })(), 'Guardando ' + n + (n === 1 ? ' cambio…' : ' cambios…'));
   toast('Cambios guardados.');
+}
+/**
+ * A salida changed in Programa (_prog) only changes day, time, place…: the manzanas chosen meanwhile (maybe on
+ * another phone) are kept, unless it was marked "sin territorio" (_sinManz).
+ */
+function paraGuardar(t, r) {
+  if (t !== 'Salidas' || !r._prog) return r;
+  const srv = (SERVER.Salidas || []).find(x => x.id === r.id), out = { ...r };
+  if (srv && !r._sinManz) { out.bloques = srv.bloques; out.notasBloques = srv.notasBloques; }
+  delete out._prog; delete out._sinManz;
+  return out;
+}
+/** Stages several rows of one table at once (one redraw). */
+function stageMany(table, rows) {
+  const sv = PEND.save[table] = PEND.save[table] || {};
+  rows.forEach(r => { sv[r.id] = r; });
+  if (PEND.remove[table]) PEND.remove[table] = PEND.remove[table].filter(id => !sv[id]);
+  rebuild();
 }
 function discardAll() {
   const n = pendingCount();
   if (!confirm('¿Descartar ' + n + (n === 1 ? ' cambio' : ' cambios') + ' sin guardar?')) return;
   endShape();
   PEND = { save: {}, remove: {} };
-  editSel = null; lastSaved = null;
+  editSel = null; lastSaved = null; prog.edit = null;
   rebuild();
 }
 
@@ -771,8 +796,9 @@ function programaPanel() {
   const porDia = {};
   list.forEach(s => (porDia[s.fecha] = porDia[s.fecha] || []).push(s));
   const sinManz = list.filter(s => !sinTerr(s) && !salidaBlocks(s).length).length;
+  const sinGuardar = id => (PEND.save.Salidas || {})[id] ? ' <span class="tag pend">sin guardar</span>' : '';
   const fila = s => '<div class="list-item click" data-act="pgedit" data-id="' + s.id + '"><div><b>' + esc(horaCorta(s.hora)) + '</b> · ' + esc(lugarText(s) || '—') +
-    (s.especial === 'si' ? ' <span class="tag">**</span>' : '') + '<div class="muted">' + esc(s.conductor || 'sin conductor') + ' · ' +
+    (s.especial === 'si' ? ' <span class="tag">**</span>' : '') + sinGuardar(s.id) + '<div class="muted">' + esc(s.conductor || 'sin conductor') + ' · ' +
     (sinTerr(s) ? 'sin territorio' : salidaBlocks(s).length ? '🗺 ' + esc(describe(salidaBlocks(s))) : '<span class="warn">sin manzanas</span>') +
     '</div></div><span class="muted">›</span></div>';
   const modeloFila = m => '<div class="list-item"><div><b>' + DIAS_LARGOS[+m.dia] + ' ' + esc(horaCorta(m.hora)) + '</b> · ' + esc(lugarText(m) || '—') +
@@ -780,6 +806,7 @@ function programaPanel() {
     '<div style="white-space:nowrap"><button class="b small" data-act="pgmodeloedit" data-id="' + esc(m.id) + '">Editar</button> ' +
     '<button class="b small danger" data-act="pgmodelodel" data-id="' + esc(m.id) + '">Quitar</button></div></div>';
   return '<h2>Programa de predicación</h2>' +
+    '<p class="muted">Los cambios se juntan arriba en <b>“cambios sin guardar”</b>. Al terminar, toca <b>Guardar todo</b> (o <b>Descartar</b>).</p>' +
     '<div class="mes-nav"><button class="b small" data-act="pgmes" data-v="-1" aria-label="Mes anterior">‹</button><b>' + mesNombre(prog.mes) + '</b>' +
       '<button class="b small" data-act="pgmes" data-v="1" aria-label="Mes siguiente">›</button></div>' +
     (prog.edit ? progForm() :
@@ -1642,10 +1669,14 @@ function letraControl() {
     '<b>' + LETRA[letra].nombre + '</b><button class="b small" data-act="letra" data-v="1"' + (letra === LETRA.length - 1 ? ' disabled' : '') + ' aria-label="Letra más grande">A+</button></div>';
 }
 
+/** The conductor who chose "Salir" on this phone ({ clave, nombre }), so they can come back without their link. */
+function conductorGuardado() { const g = safeJSON(store.get('predi-c-guardado-' + KEY), null); return g && g.clave ? g : null; }
+
 function accountFooter() {
   const who = isAdmin() ? 'Entraste como <b>' + ROLE_NAMES[WHO.role] + '</b> · <button class="link" data-act="logout">Salir</button>'
-    : WHO.role === 'conductor' ? 'Conductor: <b>' + esc(WHO.nombre) + '</b> · puedes enviar informes.'
-    : '¿Eres el superintendente de servicio o el siervo de territorios? <button class="link" data-act="login">Entrar con PIN</button>';
+    : WHO.role === 'conductor' ? 'Conductor: <b>' + esc(WHO.nombre) + '</b> · puedes enviar informes. <button class="link" data-act="csalir">Salir</button>'
+    : (conductorGuardado() ? '<button class="link" data-act="cvolver">Entrar otra vez como conductor (' + esc(conductorGuardado().nombre) + ')</button><br>' : '') +
+      '¿Eres el superintendente de servicio o el siervo de territorios? <button class="link" data-act="login">Entrar con PIN</button>';
   return '<div class="acct">' + letraControl() + who + '<br>Versión ' + VERSION + '</div>';
 }
 
@@ -2318,6 +2349,27 @@ const ACT = {
     try { setDB(await api('getAll')); } catch (e) {}
   },
   commit() { return commitAll(); },
+  csalir() {
+    const esperan = cola().length + colaBorrar().length + casaCola().length;
+    if (esperan && !confirm('Hay ' + esperan + ' cosas esperando señal para enviarse. Se enviarán cuando vuelvas a entrar como conductor. ¿Salir igual?')) return;
+    store.set('predi-c-guardado-' + KEY, JSON.stringify({ clave: ckey, nombre: WHO.nombre }));
+    store.set('predi-c-salio-' + KEY, ckey);
+    ckey = ''; store.set('predi-c-' + KEY, '');
+    history.replaceState(null, '', location.pathname + (DEMO ? '?demo' : '?api=' + API_ID));
+    infForm = {}; nv = null;
+    setWho({ role: 'publicador', nombre: '' });
+    renderAll(); panel.scrollTop = 0;
+    toast('Ahora ves la app como publicador.');
+  },
+  async cvolver() {
+    const g = conductorGuardado();
+    ckey = g.clave; store.set('predi-c-' + KEY, ckey);
+    store.set('predi-c-salio-' + KEY, ''); store.set('predi-c-guardado-' + KEY, '');
+    history.replaceState(null, '', location.pathname + (DEMO ? '?demo&c=' : '?api=' + API_ID + '&c=') + ckey);
+    try { await busy(sincronizar(), 'Entrando…'); } catch (e) { return; }
+    if (WHO.role === 'conductor') { toast('Entraste como conductor: ' + WHO.nombre + '.'); flushCola(); }
+    renderAll();
+  },
   flush() { return flushCola(true); },
   async install() { const ev = installEvt; installEvt = null; ev.prompt(); await ev.userChoice; renderAll(); },
   discard() { discardAll(); },
@@ -2399,7 +2451,7 @@ const ACT = {
   async pgmodelodel(el) {
     const m = semanaModelo().find(x => x.id === el.dataset.id);
     if (!confirm('¿Quitar de la semana modelo: ' + DIAS_LARGOS[+m.dia] + ' ' + horaCorta(m.hora) + ' · ' + lugarText(m) + '? (Las salidas ya puestas en el programa no cambian.)')) return;
-    await saveRows('Config', [{ id: 'semana_modelo', valor: JSON.stringify(semanaModelo().filter(x => x.id !== m.id)) }]);
+    stage('Config', { id: 'semana_modelo', valor: JSON.stringify(semanaModelo().filter(x => x.id !== m.id)) });
   },
   pgcancelar() { prog.edit = null; renderAll(); },
   async pgguardar() {
@@ -2409,33 +2461,33 @@ const ACT = {
     if (!e.punto && !(e.notas || '').trim()) return toast('Elige el lugar (o escribe un detalle).');
     const campos = { hora: e.hora, punto: e.punto, grupo: (e.grupo || '').trim(), conductor: (e.conductor || '').trim(), notas: (e.notas || '').trim(),
       sinTerritorio: e.sinTerritorio || '', especial: e.especial || '' };
+    prog.edit = null;
     if (e.kind === 'modelo') {
       const row = { id: e.id || uid(), dia: +e.dia, ...campos }, list = semanaModelo().filter(x => x.id !== row.id).concat(row);
-      await saveRows('Config', [{ id: 'semana_modelo', valor: JSON.stringify(list) }]);
+      stage('Config', { id: 'semana_modelo', valor: JSON.stringify(list) });
     } else {
       const old = DB.Salidas.find(x => x.id === e.id) || { bloques: '', notasBloques: '' };
-      const row = { ...old, id: e.id || uid(), fecha: e.fecha, ...campos };
+      const row = { ...old, id: e.id || uid(), fecha: e.fecha, ...campos, _prog: 1 };
       if (campos.sinTerritorio === 'si' && salidaBlocks(old).length) {
-        if (!confirm('Esta salida ya tiene manzanas. Al marcarla “sin territorio” se le quitan. ¿Seguir?')) return;
-        row.bloques = ''; row.notasBloques = '';
+        if (!confirm('Esta salida ya tiene manzanas. Al marcarla “sin territorio” se le quitan. ¿Seguir?')) { prog.edit = e; return; }
+        Object.assign(row, { bloques: '', notasBloques: '', _sinManz: 1 });
       }
-      await saveRows('Salidas', [row]);
       prog.mes = e.fecha.slice(0, 7);
+      stage('Salidas', row);
     }
-    prog.edit = null; renderAll(); toast('Guardado.');
   },
   async pgborrar() {
     const s = DB.Salidas.find(x => x.id === prog.edit.id);
     if (!confirm('¿Borrar la salida del ' + when(s) + '?' + (salidaBlocks(s).length ? ' (Tiene manzanas; los informes ya enviados se conservan.)' : ''))) return;
-    await removeRows('Salidas', [s.id]);
-    prog.edit = null; renderAll();
+    prog.edit = null;
+    stageRemove('Salidas', s.id);
   },
   async pggenerar() {
     const rows = salidasDelModelo(prog.mes);
     if (!rows.length) return toast('Ya están todas las salidas de la semana modelo en ' + mesNombre(prog.mes) + ' (desde hoy).');
     if (!confirm('Se agregarán ' + rows.length + ' salidas a ' + mesNombre(prog.mes) + ' según la semana modelo (desde hoy, sin repetir las que ya están). ¿Seguir?')) return;
-    await saveRows('Salidas', rows, 'Agregando ' + rows.length + ' salidas…');
-    toast('Listo: ' + rows.length + ' salidas agregadas. Cambia los conductores que haga falta.', 5000);
+    stageMany('Salidas', rows.map(r => ({ ...r, _prog: 1 })));
+    toast(rows.length + ' salidas agregadas. Cambia los conductores que haga falta y toca “Guardar todo”.', 6000);
   },
   pgimprimir() { openPrint('Programa de ' + mesNombre(prog.mes), programaHtml(prog.mes)); },
   async pgimagen() { await busy(openProgramaImagen(prog.mes), 'Preparando imagen…'); },
@@ -2528,8 +2580,11 @@ const ACT = {
     const notas = {};
     plan.bloques.forEach(id => { const n = (plan.notasB[id] || '').trim(); if (n) notas[id] = n; });
     if (plan.hora) store.set('territorios-hora', plan.hora);
-    // A salida from the program keeps its group, "sin territorio" and "especial".
-    await saveRows('Salidas', [{ ...(plan.orig || {}), id: plan.id || uid(), fecha: plan.fecha, hora: plan.hora, bloques: plan.bloques.join(','), punto: plan.punto,
+    // A salida from the program keeps its group, "sin territorio" and "especial". If it also has unsaved
+    // changes from Programa, those keep waiting for "Guardar todo" (with these manzanas).
+    const enProg = (PEND.save.Salidas || {})[plan.id];
+    if (enProg) Object.assign(enProg, { bloques: plan.bloques.join(','), notasBloques: Object.keys(notas).length ? JSON.stringify(notas) : '' });
+    await saveRows('Salidas', [{ ...((SERVER.Salidas || []).find(x => x.id === plan.id) || plan.orig || {}), id: plan.id || uid(), fecha: plan.fecha, hora: plan.hora, bloques: plan.bloques.join(','), punto: plan.punto,
       conductor: plan.conductor.trim(), notas: plan.notas.trim(), notasBloques: Object.keys(notas).length ? JSON.stringify(notas) : '' }]);
     toast('Salida guardada: ' + when(plan));
     plan = newPlan();

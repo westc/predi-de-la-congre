@@ -13,7 +13,7 @@ The page itself holds no data and no link to the Sheet, so it's fine for this re
 | | How they get in | What they see |
 |---|---|---|
 | **Publicador** | Scans the app's QR code (or opens its link) | **Hoy** only: today's salida with time, meeting point, **Cómo llegar**, and the manzanas to work, plus the next days, and the houses that asked not to be visited |
-| **Conductor** | Opens the personal link the superintendente sends them | **Hoy** + **Informe**: report what was done today or any earlier day. Reports carry their name automatically. They can also register houses that asked not to be visited |
+| **Conductor** | Opens the personal link the superintendente sends them | **Hoy** + **Informe**: report what was done today or any earlier day. Reports carry their name automatically. They can also register houses that asked not to be visited. **Salir** (bottom of Hoy) shows the app as a publicador sees it; the phone remembers them, so **Entrar otra vez como conductor** brings them back without the link (opening the app from the home screen doesn't sign them back in by itself) |
 | **Siervo de territorios** | Taps *Entrar con PIN* at the bottom of Hoy and enters his PIN | Everything except the conductores: **Hoy**, **Informe**, **Programa**, **Planificar**, **Registro**, **Editar** (manzanas, meeting points, areas, paper-map overlay). He sees the conductores' names, never the secret in their links |
 | **Superintendente de servicio** | Taps *Entrar con PIN* and enters his own PIN | Everything, including **Editar → Conductores** (create them, send their links, turn them off). Only he manages the conductores |
 
@@ -39,6 +39,7 @@ The Sheet enforces these rules, not only the page: without a conductor link or a
   - Everyone sees them: a 🚫 on the manzana in the map, in the manzana's details, in the salida cards and in Informe. **Compartir** includes them in the text and picture.
   - The admin edits or deletes them from **Registro → Casas que no se visitan**. Conductores can only add.
 - **Programa** (superintendente, siervo): the month's salidas, as in the printed program: day, time, place (a meeting point), group, conductor and a detail.
+  - Changes collect as **cambios sin guardar** (the orange bar), so a whole month can be worked on and then saved with **Guardar todo**, or dropped with **Descartar**. If the siervo chose manzanas for a salida in the meantime, saving keeps them.
   - Mark a salida **sin territorio** (Predicación Pública, por carta, a trip) so no manzanas are asked for it and it never shows as a missing informe, or **arreglo especial (\*\*)**.
   - **Semana modelo:** the usual week, set once. **Agregar las de la semana modelo** fills the month with it (from today on, without repeating what's there); then change conductors or add the special salidas.
   - **🖨 Imprimir** gives the program page (or PDF) and **📤 Imagen para WhatsApp** a picture and text of it.
