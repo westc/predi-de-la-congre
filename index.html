@@ -185,6 +185,18 @@
   .chip.no { background:#fde8e6; color:#8a1c12; border-color:#f3b5ae; }
   .sal-done { background:#f6f7f9; }
   .falta { border-color:#f3c99a; background:#fff8ee; }
+  .mes-nav { display:flex; align-items:center; gap:10px; margin:4px 0 8px; font-size:calc(16px * var(--k)); }
+  .pg-dia { margin:14px 0 2px; font-weight:700; color:var(--brand); }
+  .warn { color:#b45309; }
+  /* the printed program (Programa → Imprimir); sizes in pt so the text size setting doesn't change it */
+  .pg-page { background:#fff; color:#000; width:190mm; margin:12px auto; padding:10mm; box-shadow:0 2px 10px rgba(0,0,0,.2); font:10pt Arial,Helvetica,sans-serif; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  .pg-sup { text-align:center; color:#999; font-weight:700; font-size:11pt; }
+  .pg-page h1 { text-align:center; font-size:15pt; margin:1mm 0 3mm; }
+  .pg-t { width:100%; border-collapse:collapse; border:1.5px solid #1f3d8a; }
+  .pg-t th { background:#1f3d8a; color:#fff; padding:1mm 2mm; font-size:10.5pt; }
+  .pg-t td { border-top:1px solid #444; padding:.5mm 2mm; text-align:center; font-size:9.5pt; }
+  .pg-t tr.sab td { background:#d9ead3; } .pg-t tr.dom td { background:#c9daf8; } .pg-t tr.esp td { background:#fff2cc; }
+  .pg-nota { font-size:9pt; margin:0; background:#fff2cc; border:1.5px solid #1f3d8a; border-top:0; padding:1mm 2mm; }
   .badge { display:inline-block; min-width:18px; padding:0 5px; margin-left:4px; border-radius:9px; background:#d9480f; color:#fff; font-size:calc(11px * var(--k)); font-weight:700; line-height:18px; text-align:center; }
   .sug { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:8px; }
   .sug input { width:60px; padding:5px 6px; }
@@ -215,8 +227,8 @@
     body.s13 > :not(#s13) { display:none !important; }
     #s13 { position:static; overflow:visible; background:#fff; }
     .s13-bar { display:none; }
-    .s13-page { width:auto; margin:0; padding:0; box-shadow:none; break-after:page; }
-    .s13-page:last-child { break-after:auto; }
+    .s13-page, .pg-page { width:auto; margin:0; padding:0; box-shadow:none; break-after:page; }
+    .s13-page:last-child, .pg-page:last-child { break-after:auto; }
   }
 </style>
 </head>
@@ -227,7 +239,7 @@
   <nav id="tabs"></nav>
   <button id="refresh" title="Traer los últimos datos de la hoja" aria-label="Actualizar">↻</button>
 </header>
-<div id="demo">Modo de prueba: los datos se guardan solo en este navegador (PIN de administrador: 1234).</div>
+<div id="demo">Modo de prueba: los datos se guardan solo en este navegador (PIN del superintendente: 1234 · del siervo de territorios: 5678).</div>
 <div id="pending"></div>
 <div id="cola"></div>
 <main>
@@ -250,7 +262,7 @@
 <script src="manzanas.js"></script>
 <script>
 // ---------- settings ----------
-const VERSION = '26 · 28/10/2026'; // shown at the bottom of Editar; bump when changing this file
+const VERSION = '27 · 30/10/2026'; // shown at the bottom of Editar; bump when changing this file
 const PALETTE = ['#fff27a','#f7a8c8','#f9b26b','#ffd6b3','#b9dd8f','#80e0e8','#bba0ec','#a9c8f0','#d0d0d0','#f3df5a','#eaa3f2','#a3dcbc'];
 const PLAZA = [-17.794426, -63.134013];
 // Rough placement of the paper map over the streets: top-left, top-right, bottom-left corners.
@@ -278,24 +290,36 @@ const emptyDB = () => Object.fromEntries(TABLE_NAMES.map(t => [t, []]));
 const API_URL = 'https://script.google.com/macros/s/' + API_ID + '/exec';
 const KEY = DEMO ? 'demo' : API_ID; // per-Sheet keys for the offline copies below
 const Mock = (() => {
+  // Works like apps-script/Code.gs: roles, a version number and change log, and answers with only what changed.
   let mem = null;
   const load = () => {
     if (!mem) { try { mem = JSON.parse(store.get('territorios-demo')); } catch (e) {} }
     mem = mem || emptyDB();
     TABLE_NAMES.concat('Fotos').forEach(t => { mem[t] = mem[t] || []; });
+    mem._v = mem._v || 0; mem._log = mem._log || [];
     return mem;
   };
   const persist = () => store.set('territorios-demo', JSON.stringify(mem));
+  const log = (t, id, op, row) => {
+    if (t === 'Fotos') return;
+    mem._log.push({ v: ++mem._v, t, id, op, row });
+    if (mem._log.length > 3000) mem._log.splice(0, 1000);
+  };
   const put = (t, rows) => rows.forEach(r => {
     const row = Object.fromEntries(Object.entries(r).map(([k, v]) => [k, v == null ? '' : String(v)]));
     const i = load()[t].findIndex(x => x.id === row.id);
     if (i >= 0) mem[t][i] = row; else mem[t].push(row);
+    log(t, row.id, 'put', row);
   });
-  const del = (t, ids) => { load()[t] = mem[t].filter(r => ids.indexOf(r.id) < 0); };
+  const del = (t, ids) => {
+    load()[t].filter(r => ids.indexOf(r.id) >= 0).forEach(r => log(t, r.id, 'del'));
+    mem[t] = mem[t].filter(r => ids.indexOf(r.id) < 0);
+  };
   const who = a => {
     const w = { role: 'publicador', nombre: '', aviso: '', pinMal: false, enlaceMal: false };
     if (a.pin) {
       if (a.pin === '1234') return { role: 'admin', nombre: '' };
+      if (a.pin === '5678') return { role: 'territorios', nombre: '' };
       Object.assign(w, { pinMal: true, aviso: 'PIN incorrecto.' });
     }
     if (a.conductor) {
@@ -305,36 +329,55 @@ const Mock = (() => {
     }
     return w;
   };
+  const esAdmin = w => w.role === 'admin' || w.role === 'territorios';
+  const sinClave = r => { const c = { ...r }; delete c.clave; return c; };
   const getAll = w => {
     const d = JSON.parse(JSON.stringify(load()));
-    delete d.Fotos;
-    if (w.role !== 'admin') delete d.Conductores;
+    delete d.Fotos; delete d._log;
+    if (!esAdmin(w)) delete d.Conductores; else if (w.role !== 'admin') d.Conductores = d.Conductores.map(sinClave);
     return d;
   };
-  const needAdmin = w => { if (w.role !== 'admin') throw new Error(w.aviso || 'Solo el administrador puede hacer esto.'); };
+  const cambios = (w, since) => {
+    load(); since = Number(since);
+    if (!(since >= 0) || since > mem._v || (mem._log.length && since < mem._log[0].v - 1)) return { version: mem._v, reset: true };
+    const out = [];
+    for (const c of mem._log.filter(c => c.v > since)) {
+      if (c.t === '*') return { version: mem._v, reset: true }; // a "hand edit" (like Code.gs's alCambiarHoja)
+      if (c.t === 'Conductores' && !esAdmin(w)) continue;
+      out.push({ t: c.t, id: c.id, op: c.op, row: c.row && c.t === 'Conductores' && w.role !== 'admin' ? sinClave(c.row) : c.row });
+    }
+    return { version: mem._v, cambios: out };
+  };
+  const needAdmin = w => { if (!esAdmin(w)) throw new Error(w.aviso || 'Solo el superintendente de servicio o el siervo de territorios pueden hacer esto.'); };
+  const check = (w, t) => {
+    if (t === 'Fotos') throw new Error('Tabla protegida: ' + t);
+    if (t === 'Conductores' && w.role !== 'admin') throw new Error('Solo el superintendente de servicio puede cambiar los conductores.');
+  };
+  const WRITES = ['save', 'remove', 'commit', 'informes', 'casa', 'borrarCasa'];
   const fns = {
     getAll,
+    cambios,
     save(w, t, rows) {
       if (w.role === 'conductor' && t === 'Informes') {
         rows = rows.filter(r => !load()[t].some(x => x.id === r.id)).map(r => ({ ...r, quien: w.nombre }));
       } else {
-        if (w.role !== 'admin' && t === 'Informes') throw new Error(w.aviso || 'Solo los conductores pueden enviar informes. Pide tu enlace al encargado del territorio.');
-        needAdmin(w);
+        if (!esAdmin(w) && t === 'Informes') throw new Error(w.aviso || 'Solo los conductores pueden enviar informes. Pide tu enlace al encargado del territorio.');
+        needAdmin(w); check(w, t);
       }
-      put(t, rows); persist(); return getAll(w);
+      put(t, rows);
     },
-    remove(w, t, ids) { needAdmin(w); del(t, ids); persist(); return getAll(w); },
+    remove(w, t, ids) { needAdmin(w); check(w, t); del(t, ids); },
     commit(w, ch) {
       needAdmin(w);
+      Object.keys(ch.save || {}).concat(Object.keys(ch.remove || {})).forEach(t => check(w, t));
       Object.keys(ch.save || {}).forEach(t => put(t, ch.save[t]));
       Object.keys(ch.remove || {}).forEach(t => del(t, ch.remove[t]));
-      persist(); return getAll(w);
     },
     casa(w, row, foto) {
       if (w.role === 'publicador') throw new Error(w.aviso || 'Solo los conductores pueden registrar casas. Pide tu enlace al encargado del territorio.');
       if (!String(row.nota || '').trim()) throw new Error('Falta la dirección o descripción de la casa.');
       const old = load().NoVisitar.find(r => r.id === row.id);
-      if (old && w.role !== 'admin') return getAll(w);
+      if (old && !esAdmin(w)) return;
       if (w.role === 'conductor') row = { ...row, quien: w.nombre };
       row = { ...row, foto: old ? old.foto : '' };
       if (foto != null) {
@@ -342,7 +385,7 @@ const Mock = (() => {
         if (foto) put('Fotos', [{ id: row.id, casa: row.id, datos: foto }]);
         row.foto = foto ? '1.' + Date.now().toString(36) : '';
       }
-      put('NoVisitar', [row]); persist(); return getAll(w);
+      put('NoVisitar', [row]);
     },
     informes(w, rows, borrar) {
       if (w.role === 'publicador') throw new Error(w.aviso || 'Solo los conductores pueden enviar informes. Pide tu enlace al encargado del territorio.');
@@ -350,18 +393,24 @@ const Mock = (() => {
         const o = load().Informes.find(x => x.id === r.id);
         if (!o) { put('Informes', [w.role === 'conductor' ? { ...r, quien: w.nombre } : r]); return; }
         if (['fecha', 'salida', 'bloque', 'estado', 'porcentaje', 'nota'].every(k => String(r[k] == null ? '' : r[k]) === o[k])) return;
-        put('Informes', [{ ...r, quien: o.quien, creado: o.creado, editado: new Date().toISOString(), editadoPor: w.role === 'conductor' ? w.nombre : r.editadoPor || 'Administrador' }]);
+        put('Informes', [{ ...r, quien: o.quien, creado: o.creado, editado: new Date().toISOString(),
+          editadoPor: w.role === 'conductor' ? w.nombre : r.editadoPor || (w.role === 'territorios' ? 'Siervo de territorios' : 'Superintendente de servicio') }]);
       });
-      del('Informes', borrar || []); persist(); return getAll(w);
+      del('Informes', borrar || []);
     },
-    borrarCasa(w, id) { needAdmin(w); del('Fotos', [id]); del('NoVisitar', [id]); persist(); return getAll(w); },
+    borrarCasa(w, id) { needAdmin(w); del('Fotos', [id]); del('NoVisitar', [id]); },
     foto(w, id) { const f = load().Fotos.find(r => r.casa === id); return f ? f.datos : ''; },
   };
   return {
-    call(fn, args, auth) {
+    call(fn, args, auth, v) {
+      mem = null; // read again, so two tabs act like two phones sharing one Sheet
       const w = who(auth);
-      try { return { ok: true, data: fns[fn](w, ...args), who: w }; }
-      catch (e) { return { ok: false, error: e.message, who: w }; }
+      try {
+        if (!fns[fn]) throw new Error('Función desconocida: ' + fn);
+        let data = fns[fn](w, ...args);
+        if (WRITES.indexOf(fn) >= 0) { persist(); data = typeof v === 'number' ? { _delta: cambios(w, v) } : getAll(w); }
+        return { ok: true, data, who: w };
+      } catch (e) { return { ok: false, error: e.message, who: w }; }
     },
   };
 })();
@@ -369,14 +418,15 @@ const Mock = (() => {
 /** Calls a Code.gs function as the current user. Errors from a missing connection have e.offline = true. */
 async function api(fn, ...args) {
   const auth = { pin, conductor: ckey };
+  const v = typeof SERVER._v === 'number' ? SERVER._v : undefined; // a change then answers with only what changed
   let res, out = null;
   if (DEMO) {
     await new Promise(r => setTimeout(r, 400));
-    return answer(Mock.call(fn, args, auth));
+    return answer(Mock.call(fn, args, auth, v));
   }
   try {
     // A plain-text body keeps this a "simple" request: Apps Script can't answer a CORS preflight.
-    res = await fetch(API_URL, { method: 'POST', body: JSON.stringify({ fn, args, auth }) });
+    res = await fetch(API_URL, { method: 'POST', body: JSON.stringify({ fn, args, auth, v }) });
   } catch (e) {
     // The browser can't tell "no signal" from "Google didn't answer" (wrong link, not published for everyone).
     throw Object.assign(new Error(navigator.onLine === false ? 'Sin conexión. Inténtalo cuando tengas señal.'
@@ -415,13 +465,17 @@ async function removeRows(table, ids) { setDB(await busy(api('remove', table, id
 
 // ---------- who is using the app ----------
 // publicador: anyone with the app link · conductor: opened a personal link · admin: entered the PIN.
-const TABS = { publicador: ['hoy'], conductor: ['hoy', 'informe'], admin: ['hoy', 'informe', 'planificar', 'registro', 'editar'] };
-const TAB_NAMES = { hoy: 'Hoy', informe: 'Informe', planificar: 'Planificar', registro: 'Registro', editar: 'Editar' };
+// admin = superintendente de servicio (everything); territorios = siervo de territorios (everything but the conductores).
+const ADMIN_TABS = ['hoy', 'informe', 'programa', 'planificar', 'registro', 'editar'];
+const TABS = { publicador: ['hoy'], conductor: ['hoy', 'informe'], admin: ADMIN_TABS, territorios: ADMIN_TABS };
+const TAB_NAMES = { hoy: 'Hoy', informe: 'Informe', programa: 'Programa', planificar: 'Planificar', registro: 'Registro', editar: 'Editar' };
+const ROLE_NAMES = { admin: 'superintendente de servicio', territorios: 'siervo de territorios' };
 let pin = store.get('predi-pin-' + KEY) || '';
 let ckey = CONDUCTOR_KEY;
 // The last known role, so the right screens show at once (and offline) before the Sheet answers.
 let WHO = safeJSON(store.get('predi-who-' + KEY), null) || { role: 'publicador', nombre: '' };
-const isAdmin = () => WHO.role === 'admin';
+const isAdmin = () => WHO.role === 'admin' || WHO.role === 'territorios'; // can plan and edit
+const isSuper = () => WHO.role === 'admin'; // can also manage the conductores and their links
 const canReport = () => WHO.role !== 'publicador';
 
 function setWho(w) {
@@ -460,7 +514,43 @@ function newPlan() {
 }
 
 // The last data from the Sheet is kept in this browser, so the app opens at once and works without signal.
-function setDB(data) { SERVER = data; store.set('predi-datos-' + KEY, JSON.stringify(data)); rebuild(); }
+// SERVER._v is the version of the data this phone has: it then asks only for what changed since (sincronizar),
+// and changes it sends come back as only what changed too ({ _delta }). _rol = who it was loaded for.
+function setDB(data) {
+  if (data && data._delta) return applyDelta(data._delta);
+  data._rol = WHO.role; data._cargado = Date.now();
+  SERVER = data;
+  store.set('predi-datos-' + KEY, JSON.stringify(data));
+  rebuild();
+}
+/** Applies what changed since this phone's version ({ version, cambios: [{t, id, op, row}] } or { reset }). */
+function applyDelta(d) {
+  if (d.reset || SERVER._rol !== WHO.role) { cargarTodo(); return; } // a hand edit in the Sheet, or another login
+  d.cambios.forEach(c => {
+    const list = SERVER[c.t] = SERVER[c.t] || [];
+    const i = list.findIndex(r => r.id === c.id);
+    if (c.op === 'del') { if (i >= 0) list.splice(i, 1); } else if (i >= 0) list[i] = c.row; else list.push(c.row);
+  });
+  SERVER._v = d.version;
+  store.set('predi-datos-' + KEY, JSON.stringify(SERVER));
+  rebuild();
+}
+/**
+ * Brings this phone's copy up to date: only what changed since its version, or everything when it can't
+ * (no version yet, someone else logged in here, a week since the last full load, or the Sheet says so).
+ */
+async function sincronizar() {
+  if (typeof SERVER._v === 'number' && SERVER._rol === WHO.role && Date.now() - (SERVER._cargado || 0) < 7 * 864e5) {
+    let d = null;
+    try { d = await api('cambios', SERVER._v); }
+    catch (e) { if (!/Función desconocida/.test(e.message)) throw e; } // the Sheet still has the old script
+    if (d && !d.reset && SERVER._rol === WHO.role) return applyDelta(d);
+  }
+  setDB(await api('getAll'));
+}
+async function cargarTodo() {
+  try { setDB(await busy(api('getAll'), 'Cargando los datos de la hoja…', { skip: true, quiet: true })); } catch (e) {}
+}
 
 // Informes sent without signal wait here and go out by themselves when there is a connection:
 // rows to add or update, and ids of informes to delete.
@@ -654,6 +744,153 @@ function salidaNotes(s) { return safeJSON(s.notasBloques, {}) || {}; }
 function nextSalidaFor(id) {
   const hoy = ymd(new Date());
   return DB.Salidas.filter(s => s.fecha >= hoy && salidaBlocks(s).includes(id)).sort(bySalidaTime)[0];
+}
+
+// ---------- the monthly program (Programa) ----------
+// The superintendente sets each salida's day, time, place and conductor; the siervo de territorios then chooses
+// its manzanas in Planificar. "Semana modelo" (Config) is the usual week, used to fill a month.
+const DIAS_LARGOS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+const MESES_LARGOS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const CONGRE = 'La Villa';
+let prog = { mes: ymd(new Date()).slice(0, 7), edit: null };
+function sinTerr(s) { return s.sinTerritorio === 'si'; }
+/** "Grupo 1 - Flia. Montenegro - Predicación Pública": group, place and detail. */
+function lugarText(s) {
+  const p = DB.Puntos.find(x => x.letra === s.punto);
+  return [s.grupo, p ? p.nombre : s.punto, s.notas].filter(Boolean).join(' - ');
+}
+function semanaModelo() { return safeJSON(CONFIG.semana_modelo, null) || []; }
+function mesNombre(m) { return MESES_LARGOS[+m.slice(5, 7) - 1] + ' de ' + m.slice(0, 4); }
+function salidasDelMes(m) { return DB.Salidas.filter(s => s.fecha.slice(0, 7) === m).sort(bySalidaTime); }
+function diaDe(fecha) { const [y, m, d] = fecha.split('-').map(Number); return new Date(y, m - 1, d).getDay(); }
+const horaCorta = h => (h || '').replace(/^0(\d)/, '$1');
+const ORDEN_DIAS = [1, 2, 3, 4, 5, 6, 0]; // the week starts on Monday
+
+function programaPanel() {
+  const list = salidasDelMes(prog.mes), modelo = semanaModelo().slice().sort((a, b) => ORDEN_DIAS.indexOf(+a.dia) - ORDEN_DIAS.indexOf(+b.dia) || a.hora.localeCompare(b.hora));
+  const porDia = {};
+  list.forEach(s => (porDia[s.fecha] = porDia[s.fecha] || []).push(s));
+  const sinManz = list.filter(s => !sinTerr(s) && !salidaBlocks(s).length).length;
+  const fila = s => '<div class="list-item click" data-act="pgedit" data-id="' + s.id + '"><div><b>' + esc(horaCorta(s.hora)) + '</b> · ' + esc(lugarText(s) || '—') +
+    (s.especial === 'si' ? ' <span class="tag">**</span>' : '') + '<div class="muted">' + esc(s.conductor || 'sin conductor') + ' · ' +
+    (sinTerr(s) ? 'sin territorio' : salidaBlocks(s).length ? '🗺 ' + esc(describe(salidaBlocks(s))) : '<span class="warn">sin manzanas</span>') +
+    '</div></div><span class="muted">›</span></div>';
+  const modeloFila = m => '<div class="list-item"><div><b>' + DIAS_LARGOS[+m.dia] + ' ' + esc(horaCorta(m.hora)) + '</b> · ' + esc(lugarText(m) || '—') +
+    (m.especial === 'si' ? ' <span class="tag">**</span>' : '') + '<div class="muted">' + esc(m.conductor || 'sin conductor') + (sinTerr(m) ? ' · sin territorio' : '') + '</div></div>' +
+    '<div style="white-space:nowrap"><button class="b small" data-act="pgmodeloedit" data-id="' + esc(m.id) + '">Editar</button> ' +
+    '<button class="b small danger" data-act="pgmodelodel" data-id="' + esc(m.id) + '">Quitar</button></div></div>';
+  return '<h2>Programa de predicación</h2>' +
+    '<div class="mes-nav"><button class="b small" data-act="pgmes" data-v="-1" aria-label="Mes anterior">‹</button><b>' + mesNombre(prog.mes) + '</b>' +
+      '<button class="b small" data-act="pgmes" data-v="1" aria-label="Mes siguiente">›</button></div>' +
+    (prog.edit ? progForm() :
+      '<div class="actions"><button class="b primary" data-act="pgnueva">+ Agregar salida</button>' +
+      (modelo.length ? '<button class="b" data-act="pggenerar">Agregar las de la semana modelo</button>' : '') +
+      (list.length ? '<button class="b" data-act="pgimprimir">🖨 Imprimir</button><button class="b" data-act="pgimagen">📤 Imagen para WhatsApp</button>' : '') + '</div>') +
+    (list.length ? '<p class="muted">' + list.length + ' salidas' + (sinManz ? ' · <span class="warn">' + sinManz + ' sin manzanas</span> (las elige el siervo de territorios en Planificar)' : '') + '.</p>'
+      : '<p class="muted">Todavía no hay salidas en ' + mesNombre(prog.mes) + '. ' + (modelo.length ? 'Toca “Agregar las de la semana modelo”.' : 'Arma primero la semana modelo (abajo), o agrégalas una por una.') + '</p>') +
+    Object.keys(porDia).map(f => '<div class="pg-dia">' + DIAS_LARGOS[diaDe(f)] + ' ' + +f.slice(8) + '</div>' + porDia[f].map(fila).join('')).join('') +
+    '<h3>Semana modelo</h3><p class="muted">Las salidas de una semana normal. Con ellas se llena el mes; después se cambian los conductores o se agregan las especiales.</p>' +
+    (modelo.length ? modelo.map(modeloFila).join('') : '<p class="muted">Todavía vacía.</p>') +
+    '<div class="actions"><button class="b" data-act="pgmodelonueva">+ Agregar a la semana modelo</button></div>';
+}
+
+/** The form for one salida of the program, or one salida of the semana modelo (a weekday instead of a date). */
+function progForm() {
+  const e = prog.edit, esModelo = e.kind === 'modelo';
+  const puntos = DB.Puntos.filter(p => !archivados().has(p.id) || p.letra === e.punto).sort(porLetra);
+  const chk = (k, text) => '<label class="check"><input type="checkbox" data-in="pgc" data-k="' + k + '"' + (e[k] === 'si' ? ' checked' : '') + '> ' + text + '</label>';
+  const txt = (k, label, ph) => '<div><label>' + label + '</label><input type="text" data-in="pg" data-k="' + k + '" value="' + esc(e[k] || '') + '"' +
+    (ph ? ' placeholder="' + esc(ph) + '"' : '') + (k === 'conductor' ? ' list="conductores"' : '') + '></div>';
+  return '<div class="card"><div class="card-h">' + (esModelo ? (e.id ? 'Salida de la semana modelo' : 'Nueva salida en la semana modelo') : e.id ? 'Salida del programa' : 'Nueva salida') + '</div>' +
+    '<div class="grid2">' + (esModelo
+      ? '<div><label>Día</label><select data-in="pg" data-k="dia">' + ORDEN_DIAS.map(d => '<option value="' + d + '"' + (+e.dia === d ? ' selected' : '') + '>' + DIAS_LARGOS[d] + '</option>').join('') + '</select></div>'
+      : '<div><label>Fecha</label><input type="date" data-in="pg" data-k="fecha" value="' + esc(e.fecha) + '"></div>') +
+    '<div><label>Hora</label><input type="time" data-in="pg" data-k="hora" value="' + esc(e.hora) + '"></div></div>' +
+    '<label>Lugar (punto de salida)</label><select data-in="pg" data-k="punto"><option value="">—</option>' +
+      puntos.map(p => '<option value="' + esc(p.letra) + '"' + (e.punto === p.letra ? ' selected' : '') + '>' + esc(p.nombre) + '</option>').join('') + '</select>' +
+    (puntos.length ? '' : '<p class="muted">Agrega los lugares (familias, Salón del Reino, plaza…) en Editar → Puntos.</p>') +
+    '<div class="grid2">' + txt('grupo', 'Grupo (opcional)', 'Ej.: Grupo 1') + txt('conductor', 'Conductor') + '</div>' +
+    '<datalist id="conductores">' + DB.Conductores.filter(c => c.activo !== 'no').map(c => '<option value="' + esc(c.nombre) + '">').join('') + '</datalist>' +
+    txt('notas', 'Detalle (opcional)', 'Ej.: Predicación Pública, Predi. por carta') +
+    chk('sinTerritorio', 'Sin territorio (no se le asignan manzanas)') + chk('especial', 'Arreglo especial (**)') +
+    '<div class="actions"><button class="b primary" data-act="pgguardar">Guardar</button>' + (e.id ? '<button class="b danger" data-act="pgborrar">Borrar</button>' : '') +
+    '<button class="b" data-act="pgcancelar">Cancelar</button></div></div>';
+}
+
+/** The salidas the semana modelo adds to a month (from today on), leaving out those already there. */
+function salidasDelModelo(m) {
+  const hoy = ymd(new Date()), [y, mm] = m.split('-').map(Number), out = [];
+  for (let d = new Date(y, mm - 1, 1); d.getMonth() === mm - 1; d.setDate(d.getDate() + 1)) {
+    const fecha = ymd(d);
+    if (fecha < hoy) continue;
+    semanaModelo().filter(x => +x.dia === d.getDay()).forEach(x => {
+      if (DB.Salidas.some(s => s.fecha === fecha && s.hora === x.hora && s.punto === x.punto && (s.grupo || '') === (x.grupo || ''))) return;
+      out.push({ id: uid() + out.length, fecha, hora: x.hora, punto: x.punto, grupo: x.grupo || '', conductor: x.conductor || '', notas: x.notas || '',
+        sinTerritorio: x.sinTerritorio || '', especial: x.especial || '', bloques: '', notasBloques: '' });
+    });
+  }
+  return out;
+}
+
+function programaHtml(m) {
+  const list = salidasDelMes(m);
+  return '<section class="pg-page"><div class="pg-sup">PROGRAMA PARA LA PREDICACIÓN - CONGRE. "' + CONGRE.toUpperCase() + '"</div>' +
+    '<h1>' + MESES_LARGOS[+m.slice(5, 7) - 1].toUpperCase() + ' ' + m.slice(0, 4) + '</h1>' +
+    '<table class="pg-t"><thead><tr><th>Fecha</th><th>Día</th><th>Hora</th><th></th><th>Conductor</th></tr></thead><tbody>' +
+    list.map(s => {
+      const d = diaDe(s.fecha);
+      return '<tr class="' + (s.especial === 'si' ? 'esp' : d === 6 ? 'sab' : d === 0 ? 'dom' : '') + '"><td>' + (s.especial === 'si' ? '**' : '') + +s.fecha.slice(8) + '</td>' +
+        '<td>' + DIAS_LARGOS[d] + '</td><td>' + esc(horaCorta(s.hora)) + '</td><td>' + esc(lugarText(s)) + '</td><td>' + esc(s.conductor) + '</td></tr>';
+    }).join('') + '</tbody></table>' +
+    (list.some(s => s.especial === 'si') ? '<p class="pg-nota">** Arreglo especial de predicación</p>' : '') + '</section>';
+}
+
+/** The program as a picture for WhatsApp, laid out like the printed one. */
+async function programaImagen(m) {
+  const list = salidasDelMes(m), esp = list.some(s => s.especial === 'si');
+  const W = 1100, PAD = 30, RH = 34, TOP = 110;
+  const cols = [[90, s => (s.especial === 'si' ? '**' : '') + +s.fecha.slice(8)], [130, s => DIAS_LARGOS[diaDe(s.fecha)]], [80, s => horaCorta(s.hora)],
+    [520, lugarText], [220, s => s.conductor || '']];
+  const cv = document.createElement('canvas'), cx = cv.getContext('2d');
+  cv.width = W; cv.height = TOP + RH * (list.length + 1) + (esp ? RH : 0) + PAD;
+  cx.fillStyle = '#fff'; cx.fillRect(0, 0, W, cv.height);
+  cx.textAlign = 'center'; cx.textBaseline = 'middle';
+  cx.fillStyle = '#999'; cx.font = 'bold 24px Arial,sans-serif'; cx.fillText('PROGRAMA PARA LA PREDICACIÓN - CONGRE. "' + CONGRE.toUpperCase() + '"', W / 2, 40);
+  cx.fillStyle = '#000'; cx.font = 'bold 34px Arial,sans-serif'; cx.fillText(MESES_LARGOS[+m.slice(5, 7) - 1].toUpperCase() + ' ' + m.slice(0, 4), W / 2, 82);
+  const fit = (text, w) => { let t = String(text); while (t.length > 3 && cx.measureText(t).width > w - 12) t = t.slice(0, -2); return t === String(text) ? t : t + '…'; };
+  const row = (y, bg, texts, font, color) => {
+    cx.fillStyle = bg; cx.fillRect(PAD, y, W - 2 * PAD, RH);
+    cx.font = font; cx.fillStyle = color;
+    let x = PAD;
+    texts.forEach((t, i) => { cx.fillText(fit(t, cols[i][0]), x + cols[i][0] / 2, y + RH / 2 + 1); x += cols[i][0]; });
+    cx.strokeStyle = '#444'; cx.lineWidth = 1; cx.beginPath(); cx.moveTo(PAD, y + RH); cx.lineTo(W - PAD, y + RH); cx.stroke();
+  };
+  row(TOP, '#1f3d8a', ['Fecha', 'Día', 'Hora', '', 'Conductor'], 'bold 21px Arial,sans-serif', '#fff');
+  list.forEach((s, i) => {
+    const d = diaDe(s.fecha);
+    row(TOP + RH * (i + 1), s.especial === 'si' ? '#fff2cc' : d === 6 ? '#d9ead3' : d === 0 ? '#c9daf8' : '#fff', cols.map(c => c[1](s)), '19px Arial,sans-serif', '#000');
+  });
+  if (esp) {
+    const y = TOP + RH * (list.length + 1);
+    cx.fillStyle = '#fff2cc'; cx.fillRect(PAD, y, W - 2 * PAD, RH);
+    cx.textAlign = 'left'; cx.fillStyle = '#000'; cx.font = '18px Arial,sans-serif'; cx.fillText('** Arreglo especial de predicación', PAD + 10, y + RH / 2);
+  }
+  cx.strokeStyle = '#1f3d8a'; cx.lineWidth = 2; cx.strokeRect(PAD, TOP, W - 2 * PAD, RH * (list.length + 1) + (esp ? RH : 0));
+  return new Promise(res => cv.toBlob(res, 'image/png'));
+}
+async function openProgramaImagen(m) {
+  const blob = await programaImagen(m), list = salidasDelMes(m);
+  const text = ['Programa de predicación — ' + mesNombre(m)].concat(list.map(s => DIAS_LARGOS[diaDe(s.fecha)].slice(0, 3) + ' ' + +s.fecha.slice(8) +
+    ' · ' + horaCorta(s.hora) + ' · ' + lugarText(s) + (s.conductor ? ' · ' + s.conductor : '') + (s.especial === 'si' ? ' (**)' : ''))).join('\n');
+  shareData = { blob, text, name: 'programa-' + m + '.png' };
+  const url = URL.createObjectURL(blob);
+  const canFiles = !!(navigator.canShare && navigator.canShare({ files: [new File([blob], shareData.name, { type: 'image/png' })] }));
+  $('#share .box').innerHTML = '<div class="row-t"><span>Programa de ' + esc(mesNombre(m)) + '</span><button class="b small" data-act="shareclose">✕</button></div>' +
+    '<img src="' + url + '" alt="Programa de ' + esc(mesNombre(m)) + '">' +
+    '<div class="actions">' + (canFiles || navigator.share ? '<button class="b primary" data-act="sharenative">Compartir…</button>' : '') +
+    '<a class="b" href="' + url + '" download="' + shareData.name + '">Descargar imagen</a></div>' +
+    '<label>Texto</label><textarea rows="7" readonly onclick="this.select()">' + esc(text) + '</textarea>';
+  $('#share').classList.add('show');
 }
 
 // ---------- informes still missing ----------
@@ -1297,7 +1534,7 @@ function renderAll() {
   renderPending();
   renderCola();
   renderMap();
-  panel.innerHTML = showLogin ? loginPanel() : nv ? nvPanel() : BYID[verBloque] ? bloquePanel() : verTerr != null && BL.some(b => b.t === verTerr) ? terrPanel() : { hoy: hoyPanel, informe: informePanel, planificar: planPanel, registro: registroPanel, editar: editPanel }[tab]();
+  panel.innerHTML = showLogin ? loginPanel() : nv ? nvPanel() : BYID[verBloque] ? bloquePanel() : verTerr != null && BL.some(b => b.t === verTerr) ? terrPanel() : { hoy: hoyPanel, informe: informePanel, programa: programaPanel, planificar: planPanel, registro: registroPanel, editar: editPanel }[tab]();
 }
 
 function renderPending() {
@@ -1390,8 +1627,8 @@ function terrPanel() {
 }
 
 function loginPanel() {
-  return '<h2>Entrar como administrador</h2>' +
-    '<p class="muted">Solo para los hermanos encargados del territorio. El PIN se cambia en la hoja de Google (menú Territorios).</p>' +
+  return '<h2>Entrar con PIN</h2>' +
+    '<p class="muted">Para el superintendente de servicio o el siervo de territorios: cada uno tiene su PIN. Se cambian en la hoja de Google (menú Territorios).</p>' +
     '<label>PIN</label><input type="password" id="pin" autocomplete="off">' +
     '<div class="actions"><button class="b primary" data-act="pin">Entrar</button><button class="b" data-act="logincancel">Cancelar</button></div>';
 }
@@ -1406,9 +1643,9 @@ function letraControl() {
 }
 
 function accountFooter() {
-  const who = isAdmin() ? 'Entraste como <b>administrador</b> · <button class="link" data-act="logout">Salir</button>'
+  const who = isAdmin() ? 'Entraste como <b>' + ROLE_NAMES[WHO.role] + '</b> · <button class="link" data-act="logout">Salir</button>'
     : WHO.role === 'conductor' ? 'Conductor: <b>' + esc(WHO.nombre) + '</b> · puedes enviar informes.'
-    : '¿Eres el encargado del territorio? <button class="link" data-act="login">Entrar como administrador</button>';
+    : '¿Eres el superintendente de servicio o el siervo de territorios? <button class="link" data-act="login">Entrar con PIN</button>';
   return '<div class="acct">' + letraControl() + who + '<br>Versión ' + VERSION + '</div>';
 }
 
@@ -1513,7 +1750,7 @@ function salidaPanel(s) {
     (s.punto ? '<div class="sal-d">📍 Punto de salida: <b>' + esc(puntoName(s.punto)) + '</b></div>' : '<div class="sal-d muted">Sin punto de salida.</div>') +
     (s.conductor ? '<div class="sal-d">Conductor: <b>' + esc(s.conductor) + '</b></div>' : '') +
     (s.notas ? '<div class="sal-d">' + esc(s.notas) + '</div>' : '') +
-    '<label>Manzanas</label>' + salidaSummary(s) + nvList(salidaBlocks(s)) +
+    (s.grupo ? '<div class="sal-d">' + esc(s.grupo) + '</div>' : '') + manzanasDe(s) + nvList(salidaBlocks(s)) +
     (hechas ? '<label>' + (informada(s) ? '✓ Informada' : 'Informe') + '</label>' + estadoChips(s, true) + ESTADO_LEYENDA : '') +
     '<div class="actions">' + (dest ? '<a class="b primary" href="' + directionsUrl(dest) + '" target="_blank" rel="noopener">Cómo llegar</a>' : '') +
     '<button class="b" data-act="share">Compartir</button>' +
@@ -1522,13 +1759,19 @@ function salidaPanel(s) {
 }
 
 /** The big card for one salida on the Hoy screen: where, when, which manzanas, and how to get there. */
+/** The "Manzanas:" part of a salida: its manzanas, "por asignar", or nothing for a salida without territory. */
+function manzanasDe(s) {
+  if (sinTerr(s)) return '';
+  return '<div class="sal-d"><b>Manzanas:</b>' + (salidaBlocks(s).length ? '</div>' + salidaSummary(s) : ' <span class="muted">por asignar</span></div>');
+}
+
 function salidaCard(s, withDate) {
   const dest = salidaDest(s);
-  return '<div class="card sal-card"><div class="sal-h">' + esc(withDate ? when(s) : s.hora ? '🕓 ' + s.hora : 'Salida') + '</div>' +
+  return '<div class="card sal-card"><div class="sal-h">' + esc(withDate ? when(s) : s.hora ? '🕓 ' + s.hora : 'Salida') + (s.grupo ? ' · ' + esc(s.grupo) : '') + '</div>' +
     (s.punto ? '<div class="sal-d">📍 <b>' + esc(puntoName(s.punto)) + '</b></div>' : '') +
     (s.conductor ? '<div class="sal-d">Conductor: ' + esc(s.conductor) + '</div>' : '') +
     (s.notas ? '<div class="sal-d">' + esc(s.notas) + '</div>' : '') +
-    '<div class="sal-d"><b>Manzanas:</b></div>' + salidaSummary(s) + nvList(salidaBlocks(s)) +
+    manzanasDe(s) + nvList(salidaBlocks(s)) +
     (Object.values(salidaInformes(s)).some(Boolean) ? '<div class="sal-d"><b>Ya informadas:</b></div>' + estadoChips(s, false) : '') +
     '<div class="actions">' + (dest ? '<a class="b primary" href="' + directionsUrl(dest) + '" target="_blank" rel="noopener">Cómo llegar</a>' : '') +
     '<button class="b" data-act="ver" data-id="' + s.id + '">Ver en el mapa</button>' +
@@ -1547,7 +1790,7 @@ function hoyPanel() {
         (later.length ? '<p class="muted">La próxima:</p>' + salidaCard(later[0], true) : '<p class="muted">Todavía no hay salidas planificadas.</p>')) +
     (hechas.length ? '<h3>Ya informadas hoy</h3>' + hechas.map(salidaHecha).join('') + ESTADO_LEYENDA : '') +
     (rest.length ? '<h3>Próximos días</h3>' + rest.slice(0, 8).map(x => '<div class="list-item click" data-act="ver" data-id="' + x.id + '"><div><b>' + esc(when(x)) + '</b>' +
-      (x.punto ? ' · ' + esc(puntoName(x.punto)) : '') + '<div class="muted">' + esc(describe(salidaBlocks(x))) + '</div></div><span class="muted">›</span></div>').join('') : '') +
+      (x.punto ? ' · ' + esc(puntoName(x.punto)) : '') + '<div class="muted">' + esc(salidaBlocks(x).length ? describe(salidaBlocks(x)) : sinTerr(x) ? lugarText(x) : 'Manzanas por asignar') + '</div></div><span class="muted">›</span></div>').join('') : '') +
     '<p class="muted">Toca una manzana en el mapa para ver cuándo se trabajó. El botón ◎ muestra dónde estás.</p>' +
     '<div class="actions">' + (canReport() ? '<button class="b" data-act="nvnew">🚫 Registrar casa que no se visita</button>' : '') +
     '<button class="b" data-act="appshare">📤 Compartir la app</button></div>' +
@@ -1572,7 +1815,7 @@ function fillInforme() {
 }
 
 function informePanel() {
-  const salidas = DB.Salidas.filter(s => s.fecha === infFecha).sort(bySalidaTime);
+  const salidas = DB.Salidas.filter(s => s.fecha === infFecha && !sinTerr(s)).sort(bySalidaTime);
   const row = id => {
     const f = infForm[id], b = BYID[id];
     const s = f.salida && salidas.find(x => x.id === f.salida);
@@ -1628,13 +1871,20 @@ function planPanel() {
     return BYID[id] ? informeIcon(rs[rs.length - 1]) + ' ' + bShort(BYID[id]) : '';
   }).join(' &nbsp;');
   const item = s => '<div class="list-item"><div><b>' + esc(when(s)) + '</b>' + (s.punto ? ' · ' + esc(puntoName(s.punto)) : '') +
-    (s.fecha < hoy || informada(s) ? '<div>' + status(s) + '</div>' : salidaSummary(s)) +
+    (s.fecha < hoy || informada(s) ? '<div>' + status(s) + '</div>' : sinTerr(s) ? '<div class="muted">Sin territorio · ' + esc(lugarText(s)) + '</div>'
+      : salidaBlocks(s).length ? salidaSummary(s) : '<div class="warn">Sin manzanas todavía</div>') +
     (s.conductor ? '<div class="muted">Conductor: ' + esc(s.conductor) + '</div>' : '') + '</div>' +
     '<div style="white-space:nowrap">' + (s.fecha >= hoy ? '<button class="b small" data-act="ver" data-id="' + s.id + '">Ver</button> ' : '') + '<button class="b small" data-act="planedit" data-id="' + s.id + '">Editar</button> ' +
     '<button class="b small danger" data-act="plandel" data-id="' + s.id + '">Borrar</button></div></div>';
   const sel = plan.bloques.map(id => BYID[id]).filter(Boolean).sort((a, b) => a.t - b.t || a.n - b.n);
   const tdays = r => r.nunca === r.n ? 'nunca completado' : r.nunca ? r.nunca + ' nunca completa' + (r.nunca > 1 ? 's' : '') : 'más atrasada: ' + ago(r.oldest);
-  return '<h2>' + (plan.id ? 'Editando salida' : 'Planificar salida') + '</h2>' +
+  const faltanManz = DB.Salidas.filter(s => s.fecha >= hoy && !sinTerr(s) && !salidaBlocks(s).length && s.id !== plan.id).sort(bySalidaTime);
+  return (!plan.id && faltanManz.length ? '<div class="card falta"><div class="card-h">Salidas del programa sin manzanas (' + faltanManz.length + ')</div>' +
+      faltanManz.slice(0, 8).map(x => '<div class="list-item"><div><b>' + esc(when(x)) + '</b><div class="muted">' + esc(lugarText(x)) + (x.conductor ? ' · ' + esc(x.conductor) : '') + '</div></div>' +
+        '<button class="b small primary" data-act="planedit" data-id="' + x.id + '">Elegir manzanas</button></div>').join('') +
+      (faltanManz.length > 8 ? '<p class="muted">… y ' + (faltanManz.length - 8) + ' más.</p>' : '') + '</div>' : '') +
+    '<h2>' + (plan.id ? (plan.orig && !salidaBlocks(plan.orig).length ? 'Manzanas para la salida' : 'Editando salida') : 'Planificar salida') + '</h2>' +
+    (plan.id && plan.orig ? '<p><b>' + esc(when(plan.orig)) + '</b> · ' + esc(lugarText(plan.orig)) + (plan.orig.conductor ? ' · ' + esc(plan.orig.conductor) : '') + '</p>' : '') +
     '<p class="muted">Toca manzanas en el mapa para elegirlas. Toca el número grande de un territorio para elegirlo entero.</p>' +
     '<div class="grid2"><div><label>Fecha</label><input type="date" data-in="p-fecha" value="' + plan.fecha + '"></div>' +
     '<div><label>Hora</label><input type="time" data-in="p-hora" value="' + esc(plan.hora) + '"></div></div>' +
@@ -1740,10 +1990,12 @@ function s13Html(anio) {
     '<table>' + cols + head + p.concat(Array(20 - p.length).fill(null)).map(fila).join('') + '</table>' +
     '<p class="s13-nota">*Cuando comience una nueva página, anote en esta columna la última fecha en que los territorios se completaron.</p></section>').join('');
 }
-function openS13() {
-  $('#s13').innerHTML = '<div class="s13-bar"><span class="grow"><b>Registro S-13 · Año de servicio ' + s13Anio + '</b><br>' +
+function openS13() { openPrint('Registro S-13 · Año de servicio ' + s13Anio, s13Html(s13Anio)); }
+/** A printable page over the app (the S-13, the program): Imprimir prints just it. */
+function openPrint(title, html) {
+  $('#s13').innerHTML = '<div class="s13-bar"><span class="grow"><b>' + esc(title) + '</b><br>' +
     '<small>Para guardarlo como PDF, elige “Guardar como PDF” al imprimir.</small></span>' +
-    '<button class="b primary" data-act="s13print">Imprimir</button><button class="b" data-act="s13close">Cerrar</button></div>' + s13Html(s13Anio);
+    '<button class="b primary" data-act="s13print">Imprimir</button><button class="b" data-act="s13close">Cerrar</button></div>' + html;
   $('#s13').scrollTop = 0;
   $('#s13').classList.add('show');
   document.body.classList.add('s13');
@@ -1755,7 +2007,9 @@ function ptList(ps, accion) {
 }
 
 function editPanel() {
-  const sub = '<div class="seg seg-wrap" style="margin-bottom:10px">' + [['bloques', 'Manzanas'], ['puntos', 'Puntos'], ['areas', 'Áreas'], ['conductores', 'Conductores'], ['guia', 'Imagen guía']]
+  if (editSub === 'conductores' && !isSuper()) editSub = 'bloques'; // only the superintendente manages the conductores
+  const sub = '<div class="seg seg-wrap" style="margin-bottom:10px">' + [['bloques', 'Manzanas'], ['puntos', 'Puntos'], ['areas', 'Áreas']]
+    .concat(isSuper() ? [['conductores', 'Conductores']] : []).concat([['guia', 'Imagen guía']])
     .map(([k, l]) => '<button data-act="sub" data-v="' + k + '" class="' + (editSub === k ? 'on' : '') + '">' + l + '</button>').join('') + '</div>';
   const intro = editSub === 'bloques' || editSub === 'puntos' || editSub === 'areas' ? '<p class="muted">Los cambios se juntan arriba en <b>“cambios sin guardar”</b>. Al terminar, toca <b>Guardar todo</b> (o <b>Descartar</b> para deshacerlos).</p>' : '';
   let body = '';
@@ -1891,7 +2145,7 @@ function salidaText(s) {
     s.punto ? 'Punto de salida: ' + puntoName(s.punto) : '',
     dest ? 'Cómo llegar: ' + directionsUrl(dest) : '',
     s.conductor ? 'Conductor: ' + s.conductor : '',
-    'Manzanas: ' + describe(salidaBlocks(s)),
+    sinTerr(s) ? '' : 'Manzanas: ' + (salidaBlocks(s).length ? describe(salidaBlocks(s)) : 'por asignar'),
     ...Object.keys(notes).filter(id => BYID[id] && notes[id]).map(id => '📌 ' + bShort(BYID[id]) + ': ' + notes[id]),
     ...salidaBlocks(s).flatMap(casasDe).map(c => '🚫 No visitar — ' + bShort(BYID[c.bloque]) + ': ' + c.nota),
     s.notas || '',
@@ -1936,7 +2190,7 @@ async function salidaImage(s) {
     ['bold 50px system-ui,sans-serif', '#1d2330', when(s)],
     s.punto && ['600 36px system-ui,sans-serif', '#1d2330', '📍 ' + puntoName(s.punto)],
     s.conductor && ['32px system-ui,sans-serif', '#444', 'Conductor: ' + s.conductor],
-    ['32px system-ui,sans-serif', '#444', 'Manzanas: ' + describe(salidaBlocks(s))],
+    !sinTerr(s) && ['32px system-ui,sans-serif', '#444', 'Manzanas: ' + (salidaBlocks(s).length ? describe(salidaBlocks(s)) : 'por asignar')],
     ...Object.keys(notes).filter(id => BYID[id] && notes[id]).map(id => ['30px system-ui,sans-serif', '#6b4e00', '📌 ' + bShort(BYID[id]) + ': ' + notes[id]]),
     ...salidaBlocks(s).flatMap(casasDe).map(c => ['30px system-ui,sans-serif', '#b42318', '🚫 No visitar — ' + bShort(BYID[c.bloque]) + ': ' + c.nota]),
     s.notas && ['italic 30px system-ui,sans-serif', '#444', s.notas],
@@ -2050,9 +2304,9 @@ const ACT = {
     setDB(await busy(api('getAll'), 'Verificando…')); // a wrong PIN comes back as publicador and is forgotten
     if (!isAdmin()) return renderAll();
     store.set('predi-pin-' + KEY, v);
-    showLogin = false; tab = 'planificar';
+    showLogin = false; tab = WHO.role === 'admin' ? 'programa' : 'planificar'; // the superintendente makes the program
     renderAll();
-    toast('Entraste como administrador.');
+    toast('Entraste como ' + ROLE_NAMES[WHO.role] + '.');
   },
   async logout() {
     if (pendingCount() && !confirm('Hay cambios sin guardar. ¿Salir igual y perderlos?')) return;
@@ -2127,6 +2381,64 @@ const ACT = {
   tpick(el) { toggleTerritory(+el.dataset.v); },
   tzoom(el) { zoomTerritory(+el.dataset.v); },
   s13() { openS13(); },
+  pgmes(el) {
+    const [y, m] = prog.mes.split('-').map(Number), d = new Date(y, m - 1 + +el.dataset.v, 1);
+    prog = { mes: ymd(d).slice(0, 7), edit: null }; renderAll();
+  },
+  pgnueva() {
+    const hoy = ymd(new Date());
+    prog.edit = { kind: 'salida', id: '', fecha: prog.mes === hoy.slice(0, 7) ? hoy : prog.mes + '-01', hora: '', punto: '', grupo: '', conductor: '', notas: '', sinTerritorio: '', especial: '' };
+    renderAll(); panel.scrollTop = 0;
+  },
+  pgedit(el) { prog.edit = { kind: 'salida', ...DB.Salidas.find(x => x.id === el.dataset.id) }; renderAll(); panel.scrollTop = 0; },
+  pgmodelonueva() {
+    prog.edit = { kind: 'modelo', id: '', dia: 2, hora: '', punto: '', grupo: '', conductor: '', notas: '', sinTerritorio: '', especial: '' };
+    renderAll(); panel.scrollTop = 0;
+  },
+  pgmodeloedit(el) { prog.edit = { kind: 'modelo', ...semanaModelo().find(x => x.id === el.dataset.id) }; renderAll(); panel.scrollTop = 0; },
+  async pgmodelodel(el) {
+    const m = semanaModelo().find(x => x.id === el.dataset.id);
+    if (!confirm('¿Quitar de la semana modelo: ' + DIAS_LARGOS[+m.dia] + ' ' + horaCorta(m.hora) + ' · ' + lugarText(m) + '? (Las salidas ya puestas en el programa no cambian.)')) return;
+    await saveRows('Config', [{ id: 'semana_modelo', valor: JSON.stringify(semanaModelo().filter(x => x.id !== m.id)) }]);
+  },
+  pgcancelar() { prog.edit = null; renderAll(); },
+  async pgguardar() {
+    const e = prog.edit;
+    if (e.kind === 'salida' && !e.fecha) return toast('Elige la fecha.');
+    if (!e.hora) return toast('Pon la hora.');
+    if (!e.punto && !(e.notas || '').trim()) return toast('Elige el lugar (o escribe un detalle).');
+    const campos = { hora: e.hora, punto: e.punto, grupo: (e.grupo || '').trim(), conductor: (e.conductor || '').trim(), notas: (e.notas || '').trim(),
+      sinTerritorio: e.sinTerritorio || '', especial: e.especial || '' };
+    if (e.kind === 'modelo') {
+      const row = { id: e.id || uid(), dia: +e.dia, ...campos }, list = semanaModelo().filter(x => x.id !== row.id).concat(row);
+      await saveRows('Config', [{ id: 'semana_modelo', valor: JSON.stringify(list) }]);
+    } else {
+      const old = DB.Salidas.find(x => x.id === e.id) || { bloques: '', notasBloques: '' };
+      const row = { ...old, id: e.id || uid(), fecha: e.fecha, ...campos };
+      if (campos.sinTerritorio === 'si' && salidaBlocks(old).length) {
+        if (!confirm('Esta salida ya tiene manzanas. Al marcarla “sin territorio” se le quitan. ¿Seguir?')) return;
+        row.bloques = ''; row.notasBloques = '';
+      }
+      await saveRows('Salidas', [row]);
+      prog.mes = e.fecha.slice(0, 7);
+    }
+    prog.edit = null; renderAll(); toast('Guardado.');
+  },
+  async pgborrar() {
+    const s = DB.Salidas.find(x => x.id === prog.edit.id);
+    if (!confirm('¿Borrar la salida del ' + when(s) + '?' + (salidaBlocks(s).length ? ' (Tiene manzanas; los informes ya enviados se conservan.)' : ''))) return;
+    await removeRows('Salidas', [s.id]);
+    prog.edit = null; renderAll();
+  },
+  async pggenerar() {
+    const rows = salidasDelModelo(prog.mes);
+    if (!rows.length) return toast('Ya están todas las salidas de la semana modelo en ' + mesNombre(prog.mes) + ' (desde hoy).');
+    if (!confirm('Se agregarán ' + rows.length + ' salidas a ' + mesNombre(prog.mes) + ' según la semana modelo (desde hoy, sin repetir las que ya están). ¿Seguir?')) return;
+    await saveRows('Salidas', rows, 'Agregando ' + rows.length + ' salidas…');
+    toast('Listo: ' + rows.length + ' salidas agregadas. Cambia los conductores que haga falta.', 5000);
+  },
+  pgimprimir() { openPrint('Programa de ' + mesNombre(prog.mes), programaHtml(prog.mes)); },
+  async pgimagen() { await busy(openProgramaImagen(prog.mes), 'Preparando imagen…'); },
   aradd() {
     const nombre = $('#ar-new').value.trim();
     if (!nombre) return toast('Escribe el nombre del área.');
@@ -2216,7 +2528,8 @@ const ACT = {
     const notas = {};
     plan.bloques.forEach(id => { const n = (plan.notasB[id] || '').trim(); if (n) notas[id] = n; });
     if (plan.hora) store.set('territorios-hora', plan.hora);
-    await saveRows('Salidas', [{ id: plan.id || uid(), fecha: plan.fecha, hora: plan.hora, bloques: plan.bloques.join(','), punto: plan.punto,
+    // A salida from the program keeps its group, "sin territorio" and "especial".
+    await saveRows('Salidas', [{ ...(plan.orig || {}), id: plan.id || uid(), fecha: plan.fecha, hora: plan.hora, bloques: plan.bloques.join(','), punto: plan.punto,
       conductor: plan.conductor.trim(), notas: plan.notas.trim(), notasBloques: Object.keys(notas).length ? JSON.stringify(notas) : '' }]);
     toast('Salida guardada: ' + when(plan));
     plan = newPlan();
@@ -2225,7 +2538,7 @@ const ACT = {
   planreset() { plan = newPlan(); renderAll(); },
   planedit(el) {
     const s = DB.Salidas.find(x => x.id === el.dataset.id);
-    plan = { id: s.id, fecha: s.fecha, hora: s.hora || '', punto: s.punto, conductor: s.conductor, notas: s.notas, bloques: salidaBlocks(s).filter(id => BYID[id]), notasB: salidaNotes(s) };
+    plan = { id: s.id, fecha: s.fecha, hora: s.hora || '', punto: s.punto, conductor: s.conductor, notas: s.notas, bloques: salidaBlocks(s).filter(id => BYID[id]), notasB: salidaNotes(s), orig: s };
     renderAll(); panel.scrollTop = 0;
   },
   async plandel(el) {
@@ -2321,6 +2634,8 @@ const INPUT = {
   },
   sugunterr(el) { sugUnTerr = el.checked; store.set('predi-sug-unterr', sugUnTerr ? '1' : ''); if (plan.sug) aplicarSugerencia(false); renderAll(); },
   sugnunca(el) { sugSinNunca = el.checked; store.set('predi-sug-sinnunca', sugSinNunca ? '1' : ''); if (plan.sug) aplicarSugerencia(false); renderAll(); },
+  pg(el) { prog.edit[el.dataset.k] = el.value; },
+  pgc(el) { prog.edit[el.dataset.k] = el.checked ? 'si' : ''; },
   sugn(el) { sugN = Math.max(1, Math.min(30, +el.value || 4)); store.set('predi-sugn', sugN); if (plan.sug) aplicarSugerencia(false); renderAll(); },
   'p-conductor'(el) { plan.conductor = el.value; },
   'p-notas'(el) { plan.notas = el.value; },
@@ -2340,7 +2655,7 @@ const INPUT = {
   guiaop(el) { guide.setOpacity(+el.value); },
 };
 // "change" for controls that re-render or save; "input" for live text so typing never loses focus.
-const ON_CHANGE = ['inffecha', 'tcolor', 'guiafile', 'p-fecha', 'p-hora', 'p-punto', 's13anio', 'nvfile', 'arname', 'arterr', 'sugn', 'sugnunca', 'sugunterr'];
+const ON_CHANGE = ['inffecha', 'tcolor', 'guiafile', 'p-fecha', 'p-hora', 'p-punto', 's13anio', 'nvfile', 'arname', 'arterr', 'sugn', 'sugnunca', 'sugunterr', 'pgc'];
 
 function onAct(e) {
   const el = e.target.closest('[data-act]');
@@ -2380,7 +2695,7 @@ async function refresh(manual) {
   loading = true;
   $('#refresh').classList.add('spin');
   try {
-    setDB(await busy(api('getAll'), manual ? 'Trayendo los últimos datos…' : 'Actualizando los datos…', { skip: true, quiet: !manual }));
+    await busy(sincronizar(), 'Buscando cambios…', { skip: true, quiet: !manual });
     lastLoad = Date.now();
     if (manual) toast('Datos actualizados.');
   } catch (e) {
@@ -2425,8 +2740,7 @@ async function start() {
   const saved = safeJSON(store.get('predi-datos-' + KEY), null);
   if (saved) { SERVER = saved; rebuild(); fitStart(); }
   try {
-    const data = await busy(api('getAll'), 'Cargando los datos de la hoja…', { skip: !!saved, quiet: !!saved });
-    setDB(data);
+    await busy(sincronizar(), saved ? 'Buscando cambios…' : 'Cargando los datos de la hoja…', { skip: !!saved, quiet: !!saved });
     lastLoad = Date.now();
     if (!saved) fitStart();
   } catch (e) {

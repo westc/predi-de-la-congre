@@ -13,10 +13,11 @@ The page itself holds no data and no link to the Sheet, so it's fine for this re
 | | How they get in | What they see |
 |---|---|---|
 | **Publicador** | Scans the app's QR code (or opens its link) | **Hoy** only: today's salida with time, meeting point, **Cómo llegar**, and the manzanas to work, plus the next days, and the houses that asked not to be visited |
-| **Conductor** | Opens the personal link the admin sends them | **Hoy** + **Informe**: report what was done today or any earlier day. Reports carry their name automatically. They can also register houses that asked not to be visited |
-| **Admin** | Taps *Entrar como administrador* at the bottom of Hoy and enters the PIN | Everything: **Hoy**, **Informe**, **Planificar**, **Registro**, **Editar** (manzanas, meeting points, conductores, paper-map overlay) |
+| **Conductor** | Opens the personal link the superintendente sends them | **Hoy** + **Informe**: report what was done today or any earlier day. Reports carry their name automatically. They can also register houses that asked not to be visited |
+| **Siervo de territorios** | Taps *Entrar con PIN* at the bottom of Hoy and enters his PIN | Everything except the conductores: **Hoy**, **Informe**, **Programa**, **Planificar**, **Registro**, **Editar** (manzanas, meeting points, areas, paper-map overlay). He sees the conductores' names, never the secret in their links |
+| **Superintendente de servicio** | Taps *Entrar con PIN* and enters his own PIN | Everything, including **Editar → Conductores** (create them, send their links, turn them off). Only he manages the conductores |
 
-The Sheet enforces these rules, not only the page: without a conductor link or the PIN, the Sheet refuses informes and changes.
+The Sheet enforces these rules, not only the page: without a conductor link or a PIN, the Sheet refuses informes and changes, and only the superintendente's PIN can change the conductores. Each PIN is set only from the Sheet's menu.
 
 ## What it does
 
@@ -37,12 +38,17 @@ The Sheet enforces these rules, not only the page: without a conductor link or t
   - The photo is shrunk on the phone to at most 120 KB before it's sent.
   - Everyone sees them: a 🚫 on the manzana in the map, in the manzana's details, in the salida cards and in Informe. **Compartir** includes them in the text and picture.
   - The admin edits or deletes them from **Registro → Casas que no se visitan**. Conductores can only add.
-- **Planificar** (admin): date and time, meeting point, conductor, manzanas with notes; territories sorted by their manzana that has gone longest without being completed. **✨ Sugerir manzanas** proposes the chosen number of manzanas longest without being completed, close together and, if a meeting point is chosen first, close to it (it updates when the point changes, until the selection is changed by hand). It skips manzanas completed in the last 3 weeks and those already in an upcoming salida; **Otra sugerencia** gives different ones. **Sin territorios nunca completados** (remembered on each phone) leaves out territories with no completed round yet. **Solo un territorio** (also remembered) suggests one territory, the one longest without being completed, starting with the manzanas it still needs; if more manzanas are asked for than it has free, it goes on to the nearest territory (recently done manzanas included). On a computer, hovering a manzana shows a bubble with how it stands and buttons to add or remove it, open its history or its territory's; it stays while the mouse is on it. **Colorear por → Último trabajo** turns the map into a heat map of the manzanas, from light (completed recently) to dark (longest ago), gray if never completed, with ◐ on those with partial work since.
+- **Programa** (superintendente, siervo): the month's salidas, as in the printed program: day, time, place (a meeting point), group, conductor and a detail.
+  - Mark a salida **sin territorio** (Predicación Pública, por carta, a trip) so no manzanas are asked for it and it never shows as a missing informe, or **arreglo especial (\*\*)**.
+  - **Semana modelo:** the usual week, set once. **Agregar las de la semana modelo** fills the month with it (from today on, without repeating what's there); then change conductors or add the special salidas.
+  - **🖨 Imprimir** gives the program page (or PDF) and **📤 Imagen para WhatsApp** a picture and text of it.
+  - The siervo de territorios then chooses the manzanas: Planificar lists **Salidas del programa sin manzanas**, each with **Elegir manzanas** (the suggestion starts from that salida's meeting point).
+- **Planificar** (superintendente, siervo): date and time, meeting point, conductor, manzanas with notes; territories sorted by their manzana that has gone longest without being completed. **✨ Sugerir manzanas** proposes the chosen number of manzanas longest without being completed, close together and, if a meeting point is chosen first, close to it (it updates when the point changes, until the selection is changed by hand). It skips manzanas completed in the last 3 weeks and those already in an upcoming salida; **Otra sugerencia** gives different ones. **Sin territorios nunca completados** (remembered on each phone) leaves out territories with no completed round yet. **Solo un territorio** (also remembered) suggests one territory, the one longest without being completed, starting with the manzanas it still needs; if more manzanas are asked for than it has free, it goes on to the nearest territory (recently done manzanas included). On a computer, hovering a manzana shows a bubble with how it stands and buttons to add or remove it, open its history or its territory's; it stays while the mouse is on it. **Colorear por → Último trabajo** turns the map into a heat map of the manzanas, from light (completed recently) to dark (longest ago), gray if never completed, with ◐ on those with partial work since.
 - **Registro** (admin): which territories were completed most and least recently, as a heat map and a list with each territory's history, plus the **S-13** (*Registro de asignación de territorio*) for any service year, ready to print or save as PDF.
   - A territory is **completed** on the day the last of its manzanas gets a *Completo* informe (*Parcial* doesn't count).
   - It counts as **assigned** from the first salida (or informe) that includes it after its previous completion. *Asignado a* lists that round's conductores.
   - Nothing new is entered for this: it all comes from the salidas and informes.
-- **Editar** (admin): label and reshape manzanas, add meeting points, **Conductores** (create and send their links), lay the paper map over the streets.
+- **Editar** (superintendente, siervo): label and reshape manzanas, add meeting points (also the families' houses and places used in the program), lay the paper map over the streets. **Conductores** (create and send their links) only for the superintendente.
   - **Puntos:** a meeting point no longer used can be **archived**: it leaves the map and the Planificar list, but salidas that already use it keep its name and Cómo llegar. **Restaurar** brings it back. Saved in the Config sheet.
   - **Áreas:** for parts of the territory that are apart (e.g. an isolated territory in another neighborhood). The main area starts as "Territorios"; add others and assign territories to them. With two or more areas that have manzanas, the map gets a switch to jump between them (for everyone), and the app opens on the area last chosen. Saved in the Config sheet, so no Apps Script change was needed.
 - **Installable:**
@@ -81,7 +87,7 @@ The Sheet enforces these rules, not only the page: without a conductor link or t
 2. Replace everything in `Code.gs` with `apps-script/Code.gs`.
 3. Click **+ → HTML** and name it `Qr`. Paste `apps-script/Qr.html` into it.
 4. Delete the old `Index` and `Manzanas` files; they now live on GitHub Pages.
-5. Save. Pick `setup` in the function dropdown and click **Run**, then approve the new permission (the Sheet menu and QR window need it).
+5. Save. Pick `setup` in the function dropdown and click **Run**, then approve the permissions it asks for. `setup` also installs the trigger that notices changes made by hand in the Sheet (see *Speed* below); run it again after updating the script.
    If you'd set `ADMIN_PIN` in Script properties before, it keeps working.
 6. **Deploy → Manage deployments**, click the pencil on your existing deployment, set *Version* to **New version**, and click **Deploy**.
    - Keep *Execute as* **Me** and *Who has access* **Anyone**. "Anyone with a Google account" would block the app.
@@ -90,7 +96,7 @@ The Sheet enforces these rules, not only the page: without a conductor link or t
 ### 3. Set the PIN and get the QR code
 
 1. Reload the Sheet. A **Territorios** menu appears (it can take a few seconds).
-2. Choose **Territorios → Cambiar PIN de administrador…** and type a PIN (at least 4 characters). You can change it there any time; admins then enter the new one.
+2. Choose **Territorios → Cambiar PIN del superintendente de servicio…** and type a PIN (at least 4 characters), then **Cambiar PIN del siervo de territorios…** for his, a different one. They can be changed there any time; whoever had entered with the old one enters again.
 3. Choose **Territorios → Código QR de la app**.
    - The first time it may ask for the **web app URL**. Copy it from **Deploy → Manage deployments**; it ends in `/exec`.
 3. Share the QR (right-click → copy image, print it), or use **Copiar enlace** to send the link.
@@ -118,9 +124,13 @@ New columns are added to the Sheet automatically the first time the app talks to
 
 - **The QR link is the key to the data.** Anyone with it can see the map, salidas, meeting points, conductor names, past informes, and the houses not to visit with their photos. Share the QR only within the congregation.
 - **Conductor links are personal.** The secret part of each one is in the *Conductores* sheet (`clave` column); only the admin's app ever receives it.
-- **The PIN** is stored in the script's properties (set from the Sheet menu). After 10 wrong tries the Sheet refuses the PIN for 15 minutes. The admin's phone or computer remembers the PIN until **Salir**.
+- **The PINs** are stored in the script's properties (set from the Sheet menu). After 10 wrong tries the Sheet refuses PINs for 15 minutes. A phone or computer remembers the PIN until **Salir**.
 - **Trying it without the Sheet:** open the page from `localhost`, or add `?demo` to the address. Data is then saved only in that browser, and the admin PIN is 1234.
 - **iPhone note:** an app added to the home screen keeps its own storage. If it ever opens asking for the QR code, scan it once more.
-- **Speed:** each trip to Google takes a couple of seconds. The app shows the saved copy at once and refreshes in the background, and map edits are sent together with **Guardar todo**.
+- **Speed:** each trip to Google takes a couple of seconds, so the app sends as little as it can.
+  - Every change made through the app gets a version number and a row in the hidden **Cambios** sheet. A phone remembers which version it has and asks only for what changed since ("Buscando cambios…"), and a change it sends comes back with only what changed. Once a week, and whenever someone else logs in on that phone, it loads everything again.
+  - The script keeps a ready copy of all the data (for each kind of user), so a full load usually doesn't read the sheets.
+  - **Editing the Sheet by hand is fine:** the trigger that `setup` installs notices it, and every phone then loads everything again. If `setup` wasn't run after updating the script, hand edits only reach phones on their weekly full load. Don't edit or delete the hidden **Cambios** sheet.
+  - Map edits are sent together with **Guardar todo**.
 
 Map data © OpenStreetMap contributors. Satellite imagery © Esri, Maxar, Earthstar Geographics.
