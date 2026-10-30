@@ -186,7 +186,21 @@
   .chip.no { background:#fde8e6; color:#8a1c12; border-color:#f3b5ae; }
   .sal-done { background:#f6f7f9; }
   .falta { border-color:#f3c99a; background:#fff8ee; }
-  .mes-nav { display:flex; align-items:center; gap:10px; margin:4px 0 8px; font-size:calc(16px * var(--k)); }
+  .mes-nav { display:flex; align-items:center; gap:10px; margin:4px 0 8px; font-size:calc(16px * var(--k)); flex-wrap:wrap; }
+  .pg-mas { font-size:calc(13px * var(--k)); font-weight:400; margin-left:6px; }
+  .cal-h, .cal-g { display:grid; grid-template-columns:repeat(7, 1fr); gap:3px; }
+  .cal-h span { text-align:center; font-size:calc(11px * var(--k)); color:var(--muted); font-weight:600; }
+  .cal-d { min-height:calc(56px * var(--k)); border:1px solid var(--line); border-radius:6px; padding:2px 3px; cursor:pointer; font-size:calc(11px * var(--k)); background:#fff; overflow:hidden; }
+  .cal-d:hover { border-color:#b9c4dd; }
+  .cal-d.vacio { border:0; background:transparent; cursor:default; }
+  .cal-d b { display:block; font-size:calc(12px * var(--k)); }
+  .cal-d.hoy b { color:var(--accent); }
+  .cal-d.sel { outline:2px solid var(--accent); outline-offset:-1px; }
+  .cal-s { display:block; font-style:normal; border-radius:3px; padding:0 2px; margin-top:1px; line-height:1.35; white-space:nowrap; cursor:pointer; }
+  .legend .cal-s { display:inline-block; margin:0 3px 0 0; }
+  .cal-s.ok { background:#e3f5ea; color:#145c34; } .cal-s.sm { background:#fff0db; color:#7a4700; } .cal-s.st { background:#eef0f3; color:#4b5563; }
+  .cal-s.esp { box-shadow:inset 0 0 0 1.5px #b45309; } .cal-s.pend::after { content:' •'; color:#d9480f; }
+  .cal-mas { display:block; font-style:normal; color:var(--muted); }
   .pg-dia { margin:14px 0 2px; font-weight:700; color:var(--brand); }
   .warn { color:#b45309; }
   .tag.pend { background:#fff1e0; color:#7a4100; }
@@ -264,7 +278,7 @@
 <script src="manzanas.js"></script>
 <script>
 // ---------- settings ----------
-const VERSION = '28 · 30/10/2026'; // shown at the bottom of Editar; bump when changing this file
+const VERSION = '29 · 01/11/2026'; // shown at the bottom of Editar; bump when changing this file
 const PALETTE = ['#fff27a','#f7a8c8','#f9b26b','#ffd6b3','#b9dd8f','#80e0e8','#bba0ec','#a9c8f0','#d0d0d0','#f3df5a','#eaa3f2','#a3dcbc'];
 const PLAZA = [-17.794426, -63.134013];
 // Rough placement of the paper map over the streets: top-left, top-right, bottom-left corners.
@@ -791,34 +805,65 @@ function diaDe(fecha) { const [y, m, d] = fecha.split('-').map(Number); return n
 const horaCorta = h => (h || '').replace(/^0(\d)/, '$1');
 const ORDEN_DIAS = [1, 2, 3, 4, 5, 6, 0]; // the week starts on Monday
 
+let progVista = store.get('predi-pg-vista') === 'calendario' ? 'calendario' : 'lista';
 function programaPanel() {
   const list = salidasDelMes(prog.mes), modelo = semanaModelo().slice().sort((a, b) => ORDEN_DIAS.indexOf(+a.dia) - ORDEN_DIAS.indexOf(+b.dia) || a.hora.localeCompare(b.hora));
   const porDia = {};
   list.forEach(s => (porDia[s.fecha] = porDia[s.fecha] || []).push(s));
   const sinManz = list.filter(s => !sinTerr(s) && !salidaBlocks(s).length).length;
   const sinGuardar = id => (PEND.save.Salidas || {})[id] ? ' <span class="tag pend">sin guardar</span>' : '';
-  const fila = s => '<div class="list-item click" data-act="pgedit" data-id="' + s.id + '"><div><b>' + esc(horaCorta(s.hora)) + '</b> · ' + esc(lugarText(s) || '—') +
+  const ed = prog.edit, editando = (kind, id) => ed && ed.kind === kind && ed.id === id;
+  // The form opens where the salida is, so the list keeps its place.
+  const fila = s => editando('salida', s.id) ? progForm() : '<div class="list-item click" data-act="pgedit" data-id="' + s.id + '"><div><b>' + esc(horaCorta(s.hora)) + '</b> · ' + esc(lugarText(s) || '—') +
     (s.especial === 'si' ? ' <span class="tag">**</span>' : '') + sinGuardar(s.id) + '<div class="muted">' + esc(s.conductor || 'sin conductor') + ' · ' +
     (sinTerr(s) ? 'sin territorio' : salidaBlocks(s).length ? '🗺 ' + esc(describe(salidaBlocks(s))) : '<span class="warn">sin manzanas</span>') +
     '</div></div><span class="muted">›</span></div>';
-  const modeloFila = m => '<div class="list-item"><div><b>' + DIAS_LARGOS[+m.dia] + ' ' + esc(horaCorta(m.hora)) + '</b> · ' + esc(lugarText(m) || '—') +
+  const nuevaEn = f => ed && ed.kind === 'salida' && !ed.id && ed.enDia === f ? progForm() : '';
+  const dia = f => '<div class="pg-dia">' + DIAS_LARGOS[diaDe(f)] + ' ' + +f.slice(8) +
+    ' <button class="link pg-mas" data-act="pgnueva" data-v="' + f + '">+ salida</button></div>' + (porDia[f] || []).map(fila).join('') + nuevaEn(f);
+  const modeloFila = m => editando('modelo', m.id) ? progForm() : '<div class="list-item"><div><b>' + DIAS_LARGOS[+m.dia] + ' ' + esc(horaCorta(m.hora)) + '</b> · ' + esc(lugarText(m) || '—') +
     (m.especial === 'si' ? ' <span class="tag">**</span>' : '') + '<div class="muted">' + esc(m.conductor || 'sin conductor') + (sinTerr(m) ? ' · sin territorio' : '') + '</div></div>' +
     '<div style="white-space:nowrap"><button class="b small" data-act="pgmodeloedit" data-id="' + esc(m.id) + '">Editar</button> ' +
     '<button class="b small danger" data-act="pgmodelodel" data-id="' + esc(m.id) + '">Quitar</button></div></div>';
+  const dias = Object.keys(porDia).concat(ed && ed.kind === 'salida' && !ed.id && ed.enDia ? [ed.enDia] : []).filter((f, i, a) => a.indexOf(f) === i).sort();
   return '<h2>Programa de predicación</h2>' +
     '<p class="muted">Los cambios se juntan arriba en <b>“cambios sin guardar”</b>. Al terminar, toca <b>Guardar todo</b> (o <b>Descartar</b>).</p>' +
     '<div class="mes-nav"><button class="b small" data-act="pgmes" data-v="-1" aria-label="Mes anterior">‹</button><b>' + mesNombre(prog.mes) + '</b>' +
-      '<button class="b small" data-act="pgmes" data-v="1" aria-label="Mes siguiente">›</button></div>' +
-    (prog.edit ? progForm() :
-      '<div class="actions"><button class="b primary" data-act="pgnueva">+ Agregar salida</button>' +
+      '<button class="b small" data-act="pgmes" data-v="1" aria-label="Mes siguiente">›</button>' +
+      '<span class="seg" style="margin-left:auto">' + [['lista', 'Lista'], ['calendario', 'Calendario']].map(([v, l]) =>
+        '<button data-act="pgvista" data-v="' + v + '" class="' + (progVista === v ? 'on' : '') + '">' + l + '</button>').join('') + '</span></div>' +
+    '<div class="actions"><button class="b primary" data-act="pgnueva">+ Agregar salida</button>' +
       (modelo.length ? '<button class="b" data-act="pggenerar">Agregar las de la semana modelo</button>' : '') +
-      (list.length ? '<button class="b" data-act="pgimprimir">🖨 Imprimir</button><button class="b" data-act="pgimagen">📤 Imagen para WhatsApp</button>' : '') + '</div>') +
+      (list.length ? '<button class="b" data-act="pgimprimir">🖨 Imprimir</button><button class="b" data-act="pgimagen">📤 Imagen para WhatsApp</button>' : '') + '</div>' +
+    nuevaEn('') +
     (list.length ? '<p class="muted">' + list.length + ' salidas' + (sinManz ? ' · <span class="warn">' + sinManz + ' sin manzanas</span> (las elige el siervo de territorios en Planificar)' : '') + '.</p>'
       : '<p class="muted">Todavía no hay salidas en ' + mesNombre(prog.mes) + '. ' + (modelo.length ? 'Toca “Agregar las de la semana modelo”.' : 'Arma primero la semana modelo (abajo), o agrégalas una por una.') + '</p>') +
-    Object.keys(porDia).map(f => '<div class="pg-dia">' + DIAS_LARGOS[diaDe(f)] + ' ' + +f.slice(8) + '</div>' + porDia[f].map(fila).join('')).join('') +
+    (progVista === 'calendario' ? calendario(porDia) + (prog.dia && prog.dia.slice(0, 7) === prog.mes ? dia(prog.dia) : '<p class="muted">Toca un día para ver sus salidas.</p>')
+      : dias.map(dia).join('')) +
     '<h3>Semana modelo</h3><p class="muted">Las salidas de una semana normal. Con ellas se llena el mes; después se cambian los conductores o se agregan las especiales.</p>' +
     (modelo.length ? modelo.map(modeloFila).join('') : '<p class="muted">Todavía vacía.</p>') +
+    (ed && ed.kind === 'modelo' && !ed.id ? progForm() : '') +
     '<div class="actions"><button class="b" data-act="pgmodelonueva">+ Agregar a la semana modelo</button></div>';
+}
+
+/** The month as a Monday–Sunday grid: each salida's time, colored by whether it has its manzanas. */
+function calendario(porDia, o) {
+  o = o || { mes: prog.mes, dia: prog.dia, act: 'pgedit', actDia: 'pgdia' };
+  const [y, m] = o.mes.split('-').map(Number), hoy = ymd(new Date());
+  const antes = (new Date(y, m - 1, 1).getDay() + 6) % 7, dias = new Date(y, m, 0).getDate();
+  const estado = s => (sinTerr(s) ? 'st' : salidaBlocks(s).length ? 'ok' : 'sm') + (s.especial === 'si' ? ' esp' : '') + ((PEND.save.Salidas || {})[s.id] ? ' pend' : '');
+  let g = '';
+  for (let i = 0; i < antes; i++) g += '<div class="cal-d vacio"></div>';
+  for (let d = 1; d <= dias; d++) {
+    const f = o.mes + '-' + String(d).padStart(2, '0'), ss = porDia[f] || [];
+    g += '<div class="cal-d' + (f === hoy ? ' hoy' : '') + (f === o.dia ? ' sel' : '') + '" data-act="' + o.actDia + '" data-v="' + f + '"><b>' + d + '</b>' +
+      ss.slice(0, 4).map(s => '<i class="cal-s ' + estado(s) + '" data-act="' + o.act + '" data-id="' + s.id + '" title="' + esc(lugarText(s) + (s.conductor ? ' · ' + s.conductor : '')) + '">' +
+        esc(horaCorta(s.hora)) + '</i>').join('') + (ss.length > 4 ? '<i class="cal-mas">+' + (ss.length - 4) + '</i>' : '') + '</div>';
+  }
+  return '<div class="cal"><div class="cal-h">' + ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map(x => '<span>' + x + '</span>').join('') + '</div>' +
+    '<div class="cal-g">' + g + '</div></div>' +
+    '<div class="legend"><span><i class="cal-s ok">8:30</i> con manzanas</span><span><i class="cal-s sm">8:30</i> ' + (o.publico ? 'manzanas por asignar' : 'sin manzanas') + '</span>' +
+    '<span><i class="cal-s st">8:30</i> sin territorio</span><span><i class="cal-s esp">8:30</i> especial</span></div>';
 }
 
 /** The form for one salida of the program, or one salida of the semana modelo (a weekday instead of a date). */
@@ -828,7 +873,7 @@ function progForm() {
   const chk = (k, text) => '<label class="check"><input type="checkbox" data-in="pgc" data-k="' + k + '"' + (e[k] === 'si' ? ' checked' : '') + '> ' + text + '</label>';
   const txt = (k, label, ph) => '<div><label>' + label + '</label><input type="text" data-in="pg" data-k="' + k + '" value="' + esc(e[k] || '') + '"' +
     (ph ? ' placeholder="' + esc(ph) + '"' : '') + (k === 'conductor' ? ' list="conductores"' : '') + '></div>';
-  return '<div class="card"><div class="card-h">' + (esModelo ? (e.id ? 'Salida de la semana modelo' : 'Nueva salida en la semana modelo') : e.id ? 'Salida del programa' : 'Nueva salida') + '</div>' +
+  return '<div class="card pg-form"><div class="card-h">' + (esModelo ? (e.id ? 'Salida de la semana modelo' : 'Nueva salida en la semana modelo') : e.id ? 'Salida del programa' : 'Nueva salida') + '</div>' +
     '<div class="grid2">' + (esModelo
       ? '<div><label>Día</label><select data-in="pg" data-k="dia">' + ORDEN_DIAS.map(d => '<option value="' + d + '"' + (+e.dia === d ? ' selected' : '') + '>' + DIAS_LARGOS[d] + '</option>').join('') + '</select></div>'
       : '<div><label>Fecha</label><input type="date" data-in="pg" data-k="fecha" value="' + esc(e.fecha) + '"></div>') +
@@ -1809,6 +1854,27 @@ function salidaCard(s, withDate) {
     (canReport() ? '<button class="b" data-act="goinf" data-v="' + s.fecha + '">Informar</button>' : '') + '</div></div>';
 }
 
+/** One salida in a list: when, group, place and its manzanas; tapping it opens it. */
+function salidaItem(x) {
+  return '<div class="list-item click" data-act="ver" data-id="' + x.id + '"><div><b>' + esc(when(x)) + '</b>' +
+    (x.grupo ? ' · <b>' + esc(x.grupo) + '</b>' : '') + (x.punto ? ' · ' + esc(puntoName(x.punto)) : '') +
+    '<div class="muted">' + esc(salidaBlocks(x).length ? describe(salidaBlocks(x)) : sinTerr(x) ? lugarText(x) : 'Manzanas por asignar') +
+    (x.conductor ? ' · ' + esc(x.conductor) : '') + '</div></div><span class="muted">›</span></div>';
+}
+// Hoy's calendar (everyone): any month, read-only; tapping a salida opens it, tapping a day lists its salidas.
+let hoyVista = store.get('predi-hoy-vista') === 'calendario' ? 'calendario' : 'lista';
+let hoyCal = { mes: ymd(new Date()).slice(0, 7), dia: '' };
+function hoyCalendario() {
+  const porDia = {};
+  salidasDelMes(hoyCal.mes).forEach(s => (porDia[s.fecha] = porDia[s.fecha] || []).push(s));
+  const d = hoyCal.dia && hoyCal.dia.slice(0, 7) === hoyCal.mes ? hoyCal.dia : '';
+  return '<div class="mes-nav"><button class="b small" data-act="hmes" data-v="-1" aria-label="Mes anterior">‹</button><b>' + mesNombre(hoyCal.mes) + '</b>' +
+      '<button class="b small" data-act="hmes" data-v="1" aria-label="Mes siguiente">›</button></div>' +
+    calendario(porDia, { mes: hoyCal.mes, dia: d, act: 'ver', actDia: 'hdia', publico: true }) +
+    (d ? '<div class="pg-dia">' + DIAS_LARGOS[diaDe(d)] + ' ' + +d.slice(8) + '</div>' +
+      ((porDia[d] || []).map(salidaItem).join('') || '<p class="muted">No hay salidas este día.</p>') : '<p class="muted">Toca un día para ver sus salidas.</p>');
+}
+
 function hoyPanel() {
   const s = shownSalida();
   if (s) return salidaPanel(s);
@@ -1820,8 +1886,10 @@ function hoyPanel() {
       : '<h2>' + (hechas.length > 1 ? 'Las salidas de hoy ya se informaron' : hechas.length ? 'La salida de hoy ya se informó' : 'Hoy no hay salida') + '</h2>' +
         (later.length ? '<p class="muted">La próxima:</p>' + salidaCard(later[0], true) : '<p class="muted">Todavía no hay salidas planificadas.</p>')) +
     (hechas.length ? '<h3>Ya informadas hoy</h3>' + hechas.map(salidaHecha).join('') + ESTADO_LEYENDA : '') +
-    (rest.length ? '<h3>Próximos días</h3>' + rest.slice(0, 8).map(x => '<div class="list-item click" data-act="ver" data-id="' + x.id + '"><div><b>' + esc(when(x)) + '</b>' +
-      (x.punto ? ' · ' + esc(puntoName(x.punto)) : '') + '<div class="muted">' + esc(salidaBlocks(x).length ? describe(salidaBlocks(x)) : sinTerr(x) ? lugarText(x) : 'Manzanas por asignar') + '</div></div><span class="muted">›</span></div>').join('') : '') +
+    (rest.length || DB.Salidas.length ? '<div class="mes-nav" style="margin-top:18px"><h3 style="margin:0">' + (hoyVista === 'calendario' ? 'Calendario' : 'Próximos días') + '</h3>' +
+      '<span class="seg" style="margin-left:auto">' + [['lista', 'Lista'], ['calendario', 'Calendario']].map(([v, l]) =>
+        '<button data-act="hvista" data-v="' + v + '" class="' + (hoyVista === v ? 'on' : '') + '">' + l + '</button>').join('') + '</span></div>' : '') +
+    (hoyVista === 'calendario' ? hoyCalendario() : rest.slice(0, 8).map(salidaItem).join('')) +
     '<p class="muted">Toca una manzana en el mapa para ver cuándo se trabajó. El botón ◎ muestra dónde estás.</p>' +
     '<div class="actions">' + (canReport() ? '<button class="b" data-act="nvnew">🚫 Registrar casa que no se visita</button>' : '') +
     '<button class="b" data-act="appshare">📤 Compartir la app</button></div>' +
@@ -1870,7 +1938,7 @@ function informePanel() {
     '<label>Fecha</label><input type="date" data-in="inffecha" value="' + infFecha + '" max="' + ymd(new Date()) + '">' +
     (hay ? '<p class="muted">Lo que ya se informó este día aparece marcado. Puedes corregirlo; para borrar un informe, toca de nuevo el estado marcado.</p>' : '') +
     (salidas.length ? '' : '<p class="muted">No hay salidas planificadas para esta fecha. Puedes tocar manzanas en el mapa para informarlas igual.</p>') +
-    salidas.map(s => '<div class="card"><div class="card-h">' + (s.hora ? esc(s.hora) + ' · ' : '') + (s.punto ? esc(puntoName(s.punto)) : 'Salida') + '</div>' +
+    salidas.map(s => '<div class="card"><div class="card-h">' + (s.hora ? esc(s.hora) + ' · ' : '') + (s.grupo ? esc(s.grupo) + ' · ' : '') + (s.punto ? esc(puntoName(s.punto)) : 'Salida') + '</div>' +
       (s.conductor ? '<div class="muted">Conductor: ' + esc(s.conductor) + '</div>' : '') +
       (s.notas ? '<div class="muted">' + esc(s.notas) + '</div>' : '') +
       salidaBlocks(s).filter(id => infForm[id] && inSalida(id) && infForm[id].salida === s.id).map(row).join('') + '</div>').join('') +
@@ -1901,7 +1969,7 @@ function planPanel() {
     const rs = DB.Informes.filter(r => r.fecha === s.fecha && r.bloque === id);
     return BYID[id] ? informeIcon(rs[rs.length - 1]) + ' ' + bShort(BYID[id]) : '';
   }).join(' &nbsp;');
-  const item = s => '<div class="list-item"><div><b>' + esc(when(s)) + '</b>' + (s.punto ? ' · ' + esc(puntoName(s.punto)) : '') +
+  const item = s => '<div class="list-item"><div><b>' + esc(when(s)) + '</b>' + (s.grupo ? ' · <b>' + esc(s.grupo) + '</b>' : '') + (s.punto ? ' · ' + esc(puntoName(s.punto)) : '') +
     (s.fecha < hoy || informada(s) ? '<div>' + status(s) + '</div>' : sinTerr(s) ? '<div class="muted">Sin territorio · ' + esc(lugarText(s)) + '</div>'
       : salidaBlocks(s).length ? salidaSummary(s) : '<div class="warn">Sin manzanas todavía</div>') +
     (s.conductor ? '<div class="muted">Conductor: ' + esc(s.conductor) + '</div>' : '') + '</div>' +
@@ -1959,9 +2027,18 @@ function terrStatus(t) {
       (c.nombres.length ? ' · ' + esc(c.nombres.join(', ')) : '') + '</div>' : '');
 }
 
+// How Registro lists the territories (remembered on each phone).
+const ORDEN_REGISTRO = {
+  atraso: { nombre: 'Más atrasados', texto: 'Primero los que llevan más tiempo sin completarse.', f: (a, b) => lastDone(a).localeCompare(lastDone(b)) || a - b },
+  numero: { nombre: 'Número', texto: 'Por número de territorio.', f: (a, b) => a - b },
+  reciente: { nombre: 'Más recientes', texto: 'Primero los completados más recientemente.', f: (a, b) => (lastDone(b) || '0').localeCompare(lastDone(a) || '0') || a - b },
+};
+let rgOrden = ORDEN_REGISTRO[store.get('predi-rg-orden')] ? store.get('predi-rg-orden') : 'atraso';
+
 function registroPanel() {
   const ts = Object.keys(CICLOS).map(Number);
-  const rows = ts.sort((a, b) => lastDone(a).localeCompare(lastDone(b)) || a - b); // never completed first, then oldest
+  const orden = ORDEN_REGISTRO[rgOrden] || ORDEN_REGISTRO.atraso;
+  const rows = ts.sort(orden.f);
   const fechas = ts.map(lastDone);
   const hoyAnio = anioServicio(ymd(new Date()));
   const primero = Math.min(hoyAnio, ...Object.values(CICLOS).flat().map(c => anioServicio(c.inicio)));
@@ -1982,7 +2059,8 @@ function registroPanel() {
       .sort((a, c) => ((BYID[a.bloque] || {}).t - (BYID[c.bloque] || {}).t) || ((BYID[a.bloque] || {}).n - (BYID[c.bloque] || {}).n) || (a.creado || '').localeCompare(c.creado || ''))
       .map(c => nvItem(c, true)).join('') + '</details>' : '<p class="muted">Ninguna. Se registran desde Hoy, o tocando una manzana en el mapa de Hoy.</p>') +
     '<h3>Territorios (' + ts.length + ')</h3>' +
-    '<p class="muted">Primero los que llevan más tiempo sin completarse.</p>' +
+    '<div class="seg seg-wrap" style="margin:4px 0 6px">' + Object.keys(ORDEN_REGISTRO).map(k => '<button data-act="rgorden" data-v="' + k + '" class="' + (rgOrden === k ? 'on' : '') + '">' +
+      ORDEN_REGISTRO[k].nombre + '</button>').join('') + '</div><p class="muted">' + orden.texto + '</p>' +
     (rows.length ? rows.map(t => {
       const cs = CICLOS[t].slice().reverse();
       return '<div class="terr-row"><i class="sw" style="background:' + HEATC[t] + '"></i><div class="grow"><b>T' + t + '</b>' + terrStatus(t) +
@@ -2030,6 +2108,15 @@ function openPrint(title, html) {
   $('#s13').scrollTop = 0;
   $('#s13').classList.add('show');
   document.body.classList.add('s13');
+}
+
+/** Redraws keeping the place in the panel; with form, brings the open form into view. */
+function enSuLugar(form) {
+  const y = panel.scrollTop;
+  renderAll();
+  panel.scrollTop = y;
+  const f = form && panel.querySelector('.pg-form');
+  if (f) f.scrollIntoView({ block: 'nearest' });
 }
 
 function ptList(ps, accion) {
@@ -2435,27 +2522,39 @@ const ACT = {
   s13() { openS13(); },
   pgmes(el) {
     const [y, m] = prog.mes.split('-').map(Number), d = new Date(y, m - 1 + +el.dataset.v, 1);
-    prog = { mes: ymd(d).slice(0, 7), edit: null }; renderAll();
+    prog = { mes: ymd(d).slice(0, 7), edit: null, dia: '' }; renderAll();
   },
-  pgnueva() {
-    const hoy = ymd(new Date());
-    prog.edit = { kind: 'salida', id: '', fecha: prog.mes === hoy.slice(0, 7) ? hoy : prog.mes + '-01', hora: '', punto: '', grupo: '', conductor: '', notas: '', sinTerritorio: '', especial: '' };
-    renderAll(); panel.scrollTop = 0;
+  hvista(el) { hoyVista = el.dataset.v; store.set('predi-hoy-vista', hoyVista); enSuLugar(); },
+  hmes(el) { const [y, m] = hoyCal.mes.split('-').map(Number); hoyCal = { mes: ymd(new Date(y, m - 1 + +el.dataset.v, 1)).slice(0, 7), dia: '' }; enSuLugar(); },
+  hdia(el) { hoyCal.dia = el.dataset.v; enSuLugar(); },
+  pgvista(el) { progVista = el.dataset.v; store.set('predi-pg-vista', progVista); enSuLugar(); },
+  pgdia(el) { prog.dia = el.dataset.v; enSuLugar(); },
+  pgnueva(el) {
+    const hoy = ymd(new Date()), f = el && el.dataset.v || '';
+    prog.edit = { kind: 'salida', id: '', enDia: f, fecha: f || (prog.mes === hoy.slice(0, 7) ? hoy : prog.mes + '-01'), hora: '', punto: '', grupo: '', conductor: '', notas: '', sinTerritorio: '', especial: '' };
+    if (f) prog.dia = f;
+    enSuLugar(true);
   },
-  pgedit(el) { prog.edit = { kind: 'salida', ...DB.Salidas.find(x => x.id === el.dataset.id) }; renderAll(); panel.scrollTop = 0; },
+  pgedit(el) {
+    const s = DB.Salidas.find(x => x.id === el.dataset.id);
+    prog.edit = { kind: 'salida', ...s }; prog.dia = s.fecha;
+    enSuLugar(true);
+  },
   pgmodelonueva() {
     prog.edit = { kind: 'modelo', id: '', dia: 2, hora: '', punto: '', grupo: '', conductor: '', notas: '', sinTerritorio: '', especial: '' };
-    renderAll(); panel.scrollTop = 0;
+    enSuLugar(true);
   },
-  pgmodeloedit(el) { prog.edit = { kind: 'modelo', ...semanaModelo().find(x => x.id === el.dataset.id) }; renderAll(); panel.scrollTop = 0; },
+  pgmodeloedit(el) { prog.edit = { kind: 'modelo', ...semanaModelo().find(x => x.id === el.dataset.id) }; enSuLugar(true); },
   async pgmodelodel(el) {
     const m = semanaModelo().find(x => x.id === el.dataset.id);
     if (!confirm('¿Quitar de la semana modelo: ' + DIAS_LARGOS[+m.dia] + ' ' + horaCorta(m.hora) + ' · ' + lugarText(m) + '? (Las salidas ya puestas en el programa no cambian.)')) return;
     stage('Config', { id: 'semana_modelo', valor: JSON.stringify(semanaModelo().filter(x => x.id !== m.id)) });
   },
-  pgcancelar() { prog.edit = null; renderAll(); },
+  pgcancelar() { prog.edit = null; enSuLugar(); },
+  rgorden(el) { rgOrden = el.dataset.v; store.set('predi-rg-orden', rgOrden); enSuLugar(); },
   async pgguardar() {
-    const e = prog.edit;
+    const e = prog.edit, y = panel.scrollTop;
+    setTimeout(() => { panel.scrollTop = y; }); // stay where the salida is
     if (e.kind === 'salida' && !e.fecha) return toast('Elige la fecha.');
     if (!e.hora) return toast('Pon la hora.');
     if (!e.punto && !(e.notas || '').trim()) return toast('Elige el lugar (o escribe un detalle).');
@@ -2480,7 +2579,9 @@ const ACT = {
     const s = DB.Salidas.find(x => x.id === prog.edit.id);
     if (!confirm('¿Borrar la salida del ' + when(s) + '?' + (salidaBlocks(s).length ? ' (Tiene manzanas; los informes ya enviados se conservan.)' : ''))) return;
     prog.edit = null;
+    const y = panel.scrollTop;
     stageRemove('Salidas', s.id);
+    panel.scrollTop = y;
   },
   async pggenerar() {
     const rows = salidasDelModelo(prog.mes);
