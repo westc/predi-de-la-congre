@@ -66,6 +66,18 @@
   main { flex:1; display:flex; flex-direction:column; min-height:0; }
   #map { flex:1; min-height:42vh; }
   #panel { background:var(--card); border-top:1px solid var(--line); overflow:auto; max-height:52vh; padding:12px 16px 24px; }
+  /* phones: Lista (no map) / Ambos / Mapa, chosen with the floating #vista switch */
+  #vista { display:none; position:fixed; right:10px; bottom:calc(12px + env(safe-area-inset-bottom)); z-index:1500; background:#fff; border-radius:20px; overflow:hidden; box-shadow:0 2px 10px rgba(0,0,0,.25); }
+  #vista button { border:0; background:#fff; color:var(--fg); padding:8px 12px; font:600 calc(13px * var(--k)) system-ui,sans-serif; cursor:pointer; }
+  #vista button + button { border-left:1px solid var(--line); }
+  #vista button.on { background:var(--accent); color:#fff; }
+  @media (max-width:799px) {
+    #vista { display:flex; }
+    #panel { padding-bottom:70px; }
+    body.v-lista #map { display:none; }
+    body.v-lista #panel { max-height:none; flex:1; border-top:0; }
+    body.v-mapa #panel { display:none; }
+  }
   @media (min-width:800px) {
     main { flex-direction:row-reverse; }
     #panel { width:390px; max-height:none; border-top:0; border-right:1px solid var(--line); }
@@ -249,6 +261,10 @@
 </style>
 </head>
 <body>
+<script>
+  // Phones: start in the view chosen last (Lista / Ambos / Mapa) without the map flashing in first.
+  try { var v = localStorage.getItem('predi-vista'); document.body.className = 'v-' + (/^(lista|ambos|mapa)$/.test(v) ? v : 'lista'); } catch (e) { document.body.className = 'v-lista'; }
+</script>
 <header>
   <h1>Territorios · La Villa</h1>
   <a id="openfull" href="" target="_blank" rel="noopener" title="Abrir en una pestaña aparte">Abrir aparte ↗</a>
@@ -262,6 +278,7 @@
   <div id="map"></div>
   <aside id="panel"></aside>
 </main>
+<div id="vista" role="group" aria-label="Vista"></div>
 <div id="saving"><div class="box"><div class="spin"></div><span id="saving-msg">Guardando…</span><button class="b small" id="saving-skip" hidden>Seguir sin esperar</button></div></div>
 <div id="toast"></div>
 <div id="share"><div class="box"></div></div>
@@ -278,7 +295,7 @@
 <script src="manzanas.js"></script>
 <script>
 // ---------- settings ----------
-const VERSION = '29 · 01/11/2026'; // shown at the bottom of Editar; bump when changing this file
+const VERSION = '31 · 01/11/2026'; // shown at the bottom of Editar; bump when changing this file
 const PALETTE = ['#fff27a','#f7a8c8','#f9b26b','#ffd6b3','#b9dd8f','#80e0e8','#bba0ec','#a9c8f0','#d0d0d0','#f3df5a','#eaa3f2','#a3dcbc'];
 const PLAZA = [-17.794426, -63.134013];
 // Rough placement of the paper map over the streets: top-left, top-right, bottom-left corners.
@@ -1393,7 +1410,10 @@ function renderMap() {
       draggable: tab === 'editar' && isAdmin() && editSub === 'puntos', pmIgnore: true,
     });
     m.bindTooltip(esc(p.nombre), { direction: 'top', offset: [0, -12] });
-    m.on('click', () => { if (tab === 'editar' && isAdmin()) { editSub = 'puntos'; editSel = { kind: 'punto', id: p.id }; renderAll(); } });
+    m.on('click', () => {
+      if (tab === 'editar' && isAdmin()) { editSub = 'puntos'; editSel = { kind: 'punto', id: p.id }; renderAll(); return; }
+      L.popup({ offset: [0, -10] }).setLatLng([+p.lat, +p.lng]).setContent(lugarHtml(p, proximasDesde(p.letra, 3), true)).openOn(map);
+    });
     m.on('dragend', () => { const ll = m.getLatLng(); stage('Puntos', { ...p, lat: ll.lat.toFixed(6), lng: ll.lng.toFixed(6) }); });
     gPuntos.addLayer(m);
   });
@@ -1504,7 +1524,25 @@ function addToPlan(ids) {
     if (PARC[id] && !plan.notasB[id]) plan.notasB[id] = parcialText(id);
   });
 }
+// ---------- phones: Lista (no map) / Ambos / Mapa ----------
+const esMovil = () => matchMedia('(max-width: 799px)').matches;
+let vista = /^(lista|ambos|mapa)$/.test(store.get('predi-vista') || '') ? store.get('predi-vista') : 'lista';
+let mapaListo = !esMovil() || vista !== 'lista'; // false: the map was hidden at start, so fit it when it first appears
+function setVista(v, guardar) {
+  vista = v;
+  if (guardar) store.set('predi-vista', v);
+  document.body.classList.remove('v-lista', 'v-ambos', 'v-mapa');
+  document.body.classList.add('v-' + v);
+  $('#vista').innerHTML = [['lista', '📋 Lista'], ['ambos', 'Ambos'], ['mapa', '🗺 Mapa']]
+    .map(([k, l]) => '<button data-v="' + k + '" class="' + (k === v ? 'on' : '') + '">' + l + '</button>').join('');
+  map.invalidateSize();
+  if (v !== 'lista' && !mapaListo) { mapaListo = true; fitStart(); }
+}
+/** Before showing something on the map: a phone in Lista switches to Ambos (just this time). */
+function mostrarMapa() { if (esMovil() && vista === 'lista') setVista('ambos'); }
+
 function zoomTerritory(t) {
+  mostrarMapa();
   map.fitBounds(L.latLngBounds(BL.filter(b => b.t === t).flatMap(b => b.coords)), { padding: [30, 30] });
 }
 function onTerritoryClick(t) {
@@ -1606,7 +1644,7 @@ function renderAll() {
   renderPending();
   renderCola();
   renderMap();
-  panel.innerHTML = showLogin ? loginPanel() : nv ? nvPanel() : BYID[verBloque] ? bloquePanel() : verTerr != null && BL.some(b => b.t === verTerr) ? terrPanel() : { hoy: hoyPanel, informe: informePanel, programa: programaPanel, planificar: planPanel, registro: registroPanel, editar: editPanel }[tab]();
+  panel.innerHTML = showLogin ? loginPanel() : nv ? nvPanel() : BYID[verBloque] ? bloquePanel() : verTerr != null && BL.some(b => b.t === verTerr) ? terrPanel() : verLugares ? lugaresPanel() : { hoy: hoyPanel, informe: informePanel, programa: programaPanel, planificar: planPanel, registro: registroPanel, editar: editPanel }[tab]();
 }
 
 function renderPending() {
@@ -1771,6 +1809,46 @@ function salidaDest(s) {
   const bs = salidaBlocks(s).map(id => BYID[id]).filter(Boolean);
   return bs.length ? centroid(bs.map(b => centroid(b.coords))) : null;
 }
+// ---------- Lugares de salida (everyone): where each meeting point is, and the next salidas from there ----------
+let verLugares = false;
+const ahoraTexto = () => { const d = new Date(); return ymd(d) + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
+/** The next n salidas from a meeting point (from now on). */
+function proximasDesde(letra, n) {
+  const ahora = ahoraTexto();
+  return DB.Salidas.filter(s => s.punto === letra && s.fecha + ' ' + (s.hora || '23:59') >= ahora).sort(bySalidaTime).slice(0, n);
+}
+/** The points to show: not archived, or still used by an upcoming salida; soonest next salida first. */
+function lugares() {
+  const arch = archivados();
+  return DB.Puntos.map(p => ({ p, prox: proximasDesde(p.letra, 3) }))
+    .filter(x => !arch.has(x.p.id) || x.prox.length)
+    .sort((a, b) => (a.prox.length ? 0 : 1) - (b.prox.length ? 0 : 1) || (a.prox[0] && b.prox[0] ? bySalidaTime(a.prox[0], b.prox[0]) : 0) || porLetra(a.p, b.p));
+}
+function mapsUrl(p) { return 'https://www.google.com/maps/search/?api=1&query=' + (+p.lat).toFixed(6) + ',' + (+p.lng).toFixed(6); }
+const salidaCorta = s => when(s) + (s.grupo ? ' · ' + s.grupo : '') + (s.conductor ? ' · ' + s.conductor : '');
+/** What "Compartir" sends for a meeting point: where it is and its next salidas. */
+function lugarTexto(p) {
+  const prox = proximasDesde(p.letra, 3);
+  return ['📍 Punto de salida ' + p.letra + ' – ' + p.nombre, 'Ubicación: ' + mapsUrl(p)]
+    .concat(prox.length ? ['Próximas salidas:'].concat(prox.map(s => '• ' + salidaCorta(s))) : []).join('\n');
+}
+/** One meeting point: next salida (tap to open it), the ones after, and how to get there / share it. */
+function lugarHtml(p, prox, enPopup) {
+  return (enPopup ? '<b>📍 ' + esc(p.letra + ' – ' + p.nombre) + '</b>' : '<div class="card-h">📍 ' + esc(p.letra + ' – ' + p.nombre) + '</div>') +
+    (prox.length ? '<div>Próxima: <button class="link" data-act="ver" data-id="' + prox[0].id + '"><b>' + esc(salidaCorta(prox[0])) + '</b></button></div>' +
+      (prox.length > 1 ? '<div class="muted">Después: ' + prox.slice(1).map(s => esc(when(s) + (s.grupo ? ' · ' + s.grupo : ''))).join(' · ') + '</div>' : '')
+      : '<div class="muted">Sin salidas programadas desde aquí.</div>') +
+    '<div class="actions"><a class="b small primary" href="' + directionsUrl([+p.lat, +p.lng]) + '" target="_blank" rel="noopener">Cómo llegar</a>' +
+    '<button class="b small" data-act="lugcompartir" data-id="' + esc(p.id) + '">Compartir</button>' +
+    (enPopup ? '' : '<button class="b small" data-act="lugver" data-id="' + esc(p.id) + '">Ver en el mapa</button>') + '</div>';
+}
+function lugaresPanel() {
+  const ls = lugares();
+  return '<button class="b small" data-act="lugback">← Volver</button><h2 style="margin-top:8px">Lugares de salida</h2>' +
+    '<p class="muted">Dónde se sale a predicar y cuándo sale el próximo grupo de cada lugar. Con “Compartir” se manda la ubicación.</p>' +
+    (ls.length ? ls.map(x => '<div class="card">' + lugarHtml(x.p, x.prox, false) + '</div>').join('') : '<p class="muted">Todavía no hay lugares de salida.</p>');
+}
+
 function directionsUrl(ll) { return 'https://www.google.com/maps/dir/?api=1&destination=' + ll[0].toFixed(6) + ',' + ll[1].toFixed(6); }
 function salidaLink(s) { return DEMO ? '' : location.origin + location.pathname + '?api=' + API_ID + '&salida=' + encodeURIComponent(s.id); }
 function todaySalidas() { const hoy = ymd(new Date()); return DB.Salidas.filter(s => s.fecha === hoy).sort(bySalidaTime); }
@@ -1781,6 +1859,7 @@ function salidaPts(s) {
   return pts;
 }
 function fitSalida(s) {
+  mostrarMapa();
   const pts = salidaPts(s);
   if (pts.length) map.fitBounds(L.latLngBounds(pts), { padding: [40, 40], maxZoom: 18 });
 }
@@ -1891,7 +1970,7 @@ function hoyPanel() {
         '<button data-act="hvista" data-v="' + v + '" class="' + (hoyVista === v ? 'on' : '') + '">' + l + '</button>').join('') + '</span></div>' : '') +
     (hoyVista === 'calendario' ? hoyCalendario() : rest.slice(0, 8).map(salidaItem).join('')) +
     '<p class="muted">Toca una manzana en el mapa para ver cuándo se trabajó. El botón ◎ muestra dónde estás.</p>' +
-    '<div class="actions">' + (canReport() ? '<button class="b" data-act="nvnew">🚫 Registrar casa que no se visita</button>' : '') +
+    '<div class="actions"><button class="b" data-act="lugares">📍 Lugares de salida</button>' + (canReport() ? '<button class="b" data-act="nvnew">🚫 Registrar casa que no se visita</button>' : '') +
     '<button class="b" data-act="appshare">📤 Compartir la app</button></div>' +
     installHint() + accountFooter();
 }
@@ -2464,7 +2543,7 @@ const ACT = {
   ver(el) {
     const s = DB.Salidas.find(x => x.id === el.dataset.id);
     if (!s) return;
-    tab = 'hoy'; showLogin = false; verBloque = ''; verTerr = null; verSalida = s.id; map.closePopup(); renderAll(); fitSalida(s); panel.scrollTop = 0;
+    tab = 'hoy'; showLogin = false; verBloque = ''; verTerr = null; verLugares = false; verSalida = s.id; map.closePopup(); renderAll(); fitSalida(s); panel.scrollTop = 0;
   },
   verback() { verSalida = ''; renderAll(); },
   async share() { await busy(openShare(shownSalida()), 'Preparando imagen…'); },
@@ -2616,6 +2695,14 @@ const ACT = {
     if (!map.getBounds().contains(c)) map.panTo(c);
   },
   bhistback() { verBloque = ''; renderAll(); },
+  lugares() { verLugares = true; verSalida = ''; map.closePopup(); renderAll(); panel.scrollTop = 0; },
+  lugback() { verLugares = false; renderAll(); },
+  lugver(el) { const p = DB.Puntos.find(x => x.id === el.dataset.id); mostrarMapa(); map.setView([+p.lat, +p.lng], Math.max(map.getZoom(), 17)); },
+  lugcompartir(el) {
+    const p = DB.Puntos.find(x => x.id === el.dataset.id);
+    map.closePopup();
+    openLinkShare('Punto ' + p.letra + ' – ' + p.nombre, mapsUrl(p), lugarTexto(p), 'Que lo escaneen para abrir la ubicación, o mándala:');
+  },
   letra(el) {
     letra = Math.max(0, Math.min(LETRA.length - 1, letra + +el.dataset.v));
     store.set('predi-letra', letra);
@@ -2821,6 +2908,8 @@ panel.addEventListener('click', onAct);
 $('#pending').addEventListener('click', onAct);
 $('#cola').addEventListener('click', onAct);
 $('#s13').addEventListener('click', onAct);
+$('#vista').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setVista(b.dataset.v, true); });
+setVista(vista);
 $('#saving-skip').addEventListener('click', () => document.body.classList.remove('busy')); // the load goes on in the background
 // Buttons inside map popups (Leaflet stops their clicks from bubbling, so listen on the way down).
 map.getContainer().addEventListener('click', onAct, true);
@@ -2838,7 +2927,7 @@ $('#tabs').addEventListener('click', e => {
   const b = e.target.closest('button');
   if (!b) return;
   if (shapeLayer) ACT.bcancel();
-  tab = b.dataset.tab; editSel = null; addingPunto = false; verSalida = ''; showLogin = false; nv = null; verBloque = ''; verTerr = null;
+  tab = b.dataset.tab; editSel = null; addingPunto = false; verSalida = ''; showLogin = false; nv = null; verBloque = ''; verTerr = null; verLugares = false;
   map.closePopup();
   renderAll();
   if (tab === 'informe' && Date.now() - lastLoad > 15000) refresh(false); // so corrections start from what others sent
