@@ -10,53 +10,60 @@ The page itself holds no data and no link to the Sheet, so it's fine for this re
 
 ## Who sees what
 
-| | How they get in | What they see |
+| | How they get in | Sections |
 |---|---|---|
-| **Publicador** | Scans the app's QR code (or opens its link) | **Hoy** only: today's salida with time, meeting point, **Cómo llegar**, and the manzanas to work, plus the next days, and the houses that asked not to be visited |
-| **Conductor** | Opens the personal link the superintendente sends them | **Hoy** + **Informe**: report what was done today or any earlier day. Reports carry their name automatically. They can also register houses that asked not to be visited. **Salir** (bottom of Hoy) shows the app as a publicador sees it; the phone remembers them, so **Entrar otra vez como conductor** brings them back without the link (opening the app from the home screen doesn't sign them back in by itself) |
-| **Siervo de territorios** | Taps *Entrar con PIN* at the bottom of Hoy and enters his PIN | Everything except the conductores: **Hoy**, **Informe**, **Programa**, **Planificar**, **Registro**, **Editar** (manzanas, meeting points, areas, paper-map overlay). He sees the conductores' names, never the secret in their links |
-| **Superintendente de servicio** | Taps *Entrar con PIN* and enters his own PIN | Everything, including **Editar → Conductores** (create them, send their links, turn them off). Only he manages the conductores |
+| **Publicador** | Scans the app's QR code (or opens its link) | **Inicio**, **Calendario**, **Lugares**, **Mapa** (phones), **Más**: today's salida with time, meeting point, **Cómo llegar** and the manzanas to work, the program, the meeting points, and the houses that asked not to be visited |
+| **Conductor** | Opens the personal link the superintendente sends them | The same plus **Informe**: report what was done today or any earlier day. Reports carry their name automatically. They can also register houses that asked not to be visited. **Más → Salir** shows the app as a publicador sees it; the phone remembers them, so **Entrar como conductor** (in Más) brings them back without the link (opening the app from the home screen doesn't sign them back in by itself) |
+| **Siervo de territorios** | **Más → Entrar con PIN**, with the siervo's PIN | Everything except the conductores: **Inicio**, **Calendario** (editable), **Informe**, **Planificar**, **Territorio** (with **Editar mapa**), **Lugares** (editable). Sees the conductores' names, never the secret in their links |
+| **Superintendente de servicio** | **Más → Entrar con PIN**, with the superintendente's PIN | Everything, including **Más → Conductores** (create them, send their links, turn them off). Only the superintendente manages the conductores |
 
 The Sheet enforces these rules, not only the page: without a conductor link or a PIN, the Sheet refuses informes and changes, and only the superintendente's PIN can change the conductores. Each PIN is set only from the Sheet's menu.
 
+## How it's laid out
+
+- **On a computer:** the sections in a bar on the left, the screen next to it, and the map always on the right. Drag the line between the screen and the map to make the screen wider or narrower (double-click it for the usual width); each computer remembers it.
+- **On a phone:** a tab bar at the bottom with five sections; the others are in **Más**. The map shows above the screen only where it's needed (a salida, Informe, choosing manzanas, Territorio, a history, a house not to visit, editing a place). Drag the bar under the map to make it taller or shorter (each phone remembers it); **⤢** on the map makes it fill the screen. **Mapa** is the map on its own.
+  - Phones: Publicador Inicio · Calendario · Lugares · Mapa · Más; Conductor Inicio · Calendario · Informe · Mapa · Más; Superintendente and siervo Inicio · Calendario · Planificar · Territorio · Más.
+- **‹** (top left) goes back from a screen opened over a section (a salida, a history, the Planificar editor, Editar mapa, Conductores, Semana modelo…). Tapping a section's tab again goes back to its start.
+
 ## What it does
 
-- **Hoy:** big card(s) for today's salida, with **Cómo llegar** (Google Maps directions), **Ver en el mapa** and, in the salida's detail, **Compartir** (a picture or text to send). Today's manzanas are highlighted on the map. **Próximos días** can be a list or a **calendar** (any month; tap a time to open that salida, or a day to list its salidas), for everyone.
-  - Once every manzana of a salida has an informe, it stops being shown as the upcoming salida. It moves to **Ya informadas hoy**, where each manzana shows how it went: ✓ completo (green), ◐ parcial with its % (orange), ✕ no se hizo (red). The map colors those manzanas the same way, with the same symbol. If all of today's salidas are reported, the next salida takes the big card. Tap any manzana to see when it was last worked; **◎** shows where you are; **Calles / Satélite** switches the background.
-- **Tamaño de letra (everyone):** at the bottom of Hoy, **A− / A+** chooses Pequeña, Normal (default), Grande or Muy grande; each phone remembers it. It's needed because an iPhone's own text size doesn't reach web apps, and an app added to the home screen has no zoom button. The printed S-13 keeps its size.
-- **On phones** a floating switch chooses **📋 Lista** (no map, the default), **Ambos** (map and panel) or **🗺 Mapa**; each phone remembers it. Showing a salida, a territory or a place on the map switches a phone in Lista to Ambos for that moment. Computers keep the map beside the panel.
-- **Lugares de salida (everyone):** **📍 Lugares de salida** on Hoy (or tapping a meeting point on the map) shows each place with the next salidas from there (day, time, group, conductor; tap to open), **Cómo llegar**, and **Compartir**, which sends the place's Google Maps location and its next salidas (WhatsApp, share sheet, copy, or a QR code).
-- **History (everyone):** tapping a manzana on Hoy (or Registro) offers **📜 Historial** and **📜 Territorio N**:
+- **Inicio:** missing informes on top, then big card(s) for today's salida, with **Cómo llegar** (Google Maps directions), **Ver en el mapa** and, in the salida's screen, **Compartir** (a picture or text to send). Below, the next few days, and a link to the Calendario.
+  - Once every manzana of a salida has an informe, it stops being shown as the upcoming salida. It moves to **Ya informadas hoy**, where each manzana shows how it went: ✓ completo (green), ◐ parcial with its % (orange), ✕ no se hizo (red). The map colors those manzanas the same way, with the same symbol. If all of today's salidas are reported, the next salida takes the big card. Tap any manzana on the map to see when it was last worked; **◎** shows where you are; **Calles / Satélite** switches the background.
+- **Calendario (everyone):** the month's program as a **Lista** (from today on) or a **Mes** grid (any month; tap a time to open that salida, or a day to list its salidas).
+  - For the superintendente and the siervo it's also where the program is made: day, time, place (a meeting point), group, conductor and a detail. Each salida's time in the grid is green with manzanas, orange without, gray if sin territorio, outlined if especial. Tapping a salida opens its form right where it is (with **🗺 Manzanas** to choose them in Planificar); **+ salida** next to a day (or tapping a day in the grid) adds one that day.
+  - Changes collect as **cambios sin guardar** (the orange bar), so a whole month can be worked on and then saved with **Guardar todo**, or dropped with **Descartar**. If the siervo chose manzanas for a salida in the meantime, saving keeps them.
+  - Mark a salida **sin territorio** (Predicación Pública, por carta, a trip) so no manzanas are asked for it and it never shows as a missing informe, or **arreglo especial (\*\*)**.
+  - **Semana modelo:** the usual week, set once (its own screen). **+ N de la semana modelo** fills the month with it (from today on, without repeating what's there; the button only shows while there's something to add); then change conductors or add the special salidas.
+  - **🖨** gives the program page (or PDF) and **📤** a picture and text of it for WhatsApp.
+- **Lugares (everyone):** each meeting point with the next salidas from there (day, time, group, conductor; tap to open), **Cómo llegar**, **Ver en el mapa**, and **Compartir**, which sends the place's Google Maps location and its next salidas (WhatsApp, share sheet, copy, or a QR code). Tapping a meeting point on the map shows the same.
+  - The superintendente and the siervo add places here (**+ Agregar lugar**, then tap the map), and **Editar** one to rename it, move it (drag it on the map), **Archivar** it or remove it. An archived place leaves the map and the Planificar list, but salidas that already use it keep its name and Cómo llegar; **Archivados** lists them to **Restaurar**. Saved in the Config sheet.
+- **History (everyone):** tapping a manzana on the map offers **📜 Historial** and **📜 Territorio N**:
   - **Manzana:** when it was last completed, partial work since, upcoming salidas with their notes, houses not to visit, and every informe by year, with who reported or changed it.
   - **Territorio:** its state, each manzana (tap one for its history), every round from assigned to completed and by whom, and all its informes by year.
-  - The manzana names in Planificar and Informe open the same screens.
-- **Faltan informes:** salidas from the last 45 days with manzanas nobody reported show at the top of Hoy, with **Informar**, and as a number on the Informe tab. A conductor sees their own salidas (matched by name); the admin sees everyone's.
+  - The manzana names in Planificar and Informe, and the territories in Territorio, open the same screens.
+- **Faltan informes:** salidas from the last 45 days with manzanas nobody reported show at the top of Inicio, with **Informar**, and as a number on the Informe tab (on Inicio for those whose tab bar has no Informe). A conductor sees their own salidas (matched by name); the admin sees everyone's.
 - **Informe** (conductor, admin): mark each manzana *Completo*, *Parcial* or *No se hizo*.
   - What was already reported for that day shows up marked, and any conductor or admin can correct it. Tapping the marked state again deletes that informe.
   - There is one informe per manzana per day. A correction keeps who reported it first and adds who changed it (*editadoPor*, *editado* in the Sheet).
 - **↻** (top right) brings in the latest data from the Sheet. The app also does it by itself when it comes back to the screen after a minute, and when you open Informe. Pulling the page down doesn't reload the app.
 - **No visitar** (houses that asked not to be visited):
-  - Conductores and the admin register them from **Hoy** (*Registrar casa que no se visita*, or tap a manzana on the map) with the manzana, a required address or description, and an optional photo.
+  - Conductores and the admin register them from **Más → Registrar casa que no se visita** (or tap a manzana on the map) with the manzana, a required address or description, and an optional photo.
   - The photo is shrunk on the phone to at most 120 KB before it's sent.
   - Everyone sees them: a 🚫 on the manzana in the map, in the manzana's details, in the salida cards and in Informe. **Compartir** includes them in the text and picture.
-  - The admin edits or deletes them from **Registro → Casas que no se visitan**. Conductores can only add.
-- **Programa** (superintendente, siervo): the month's salidas, as in the printed program: day, time, place (a meeting point), group, conductor and a detail.
-  - **Lista** or **Calendario** (a Monday–Sunday grid; each salida's time is green with manzanas, orange without, gray if sin territorio, outlined if especial). Tapping a salida opens its form right where it is; **+ salida** next to a day (or tapping a day in the calendar) adds one that day.
-  - Changes collect as **cambios sin guardar** (the orange bar), so a whole month can be worked on and then saved with **Guardar todo**, or dropped with **Descartar**. If the siervo chose manzanas for a salida in the meantime, saving keeps them.
-  - Mark a salida **sin territorio** (Predicación Pública, por carta, a trip) so no manzanas are asked for it and it never shows as a missing informe, or **arreglo especial (\*\*)**.
-  - **Semana modelo:** the usual week, set once. **Agregar las de la semana modelo** fills the month with it (from today on, without repeating what's there); then change conductors or add the special salidas.
-  - **🖨 Imprimir** gives the program page (or PDF) and **📤 Imagen para WhatsApp** a picture and text of it.
-  - The siervo de territorios then chooses the manzanas: Planificar lists **Salidas del programa sin manzanas**, each with **Elegir manzanas** (the suggestion starts from that salida's meeting point).
-- **Planificar** (superintendente, siervo): date and time, meeting point, conductor, manzanas with notes; territories sorted by their manzana that has gone longest without being completed. **✨ Sugerir manzanas** proposes the chosen number of manzanas longest without being completed, close together and, if a meeting point is chosen first, close to it (it updates when the point changes, until the selection is changed by hand). It skips manzanas completed in the last 3 weeks and those already in an upcoming salida; **Otra sugerencia** gives different ones. **Sin territorios nunca completados** (remembered on each phone) leaves out territories with no completed round yet. **Solo un territorio** (also remembered) suggests one territory, the one longest without being completed, starting with the manzanas it still needs; if more manzanas are asked for than it has free, it goes on to the nearest territory (recently done manzanas included). On a computer, hovering a manzana shows a bubble with how it stands and buttons to add or remove it, open its history or its territory's; it stays while the mouse is on it. **Colorear por → Último trabajo** turns the map into a heat map of the manzanas, from light (completed recently) to dark (longest ago), gray if never completed, with ◐ on those with partial work since.
-- **Registro** (admin): which territories were completed most and least recently, as a heat map and a list with each territory's history (sorted by **Más atrasados**, **Número** or **Más recientes**, remembered on each phone), plus the **S-13** (*Registro de asignación de territorio*) for any service year, ready to print or save as PDF.
+  - The admin edits or deletes them from **Territorio → Casas que no se visitan**. Conductores can only add.
+- **Planificar** (superintendente, siervo): first the list of upcoming salidas, **Faltan manzanas** on top (salidas from the program that still need them), then those that have them, and the last 3 weeks with how each manzana went. Tapping one (or **+ Nueva salida**) opens the editor with the map: date and time, meeting point, conductor (folded away for a salida from the program), and the manzanas, each with a note. Tap manzanas on the map, or a territory's big number to take it whole; **Territorios por tiempo sin trabajar** lists the territories by their manzana that has gone longest without being completed.
+  - **✨ Sugerir** proposes the chosen number of manzanas longest without being completed, close together and close to the meeting point (it updates when the point changes, until the selection is changed by hand). It skips manzanas completed in the last 3 weeks and those already in an upcoming salida; **Otra sugerencia** gives different ones. In **Cómo sugiere**: **Sin territorios nunca completados** (remembered on each phone) leaves out territories with no completed round yet; **Solo un territorio** (also remembered) suggests one territory, the one longest without being completed, starting with the manzanas it still needs; if more manzanas are asked for than it has free, it goes on to the nearest territory (recently done manzanas included).
+  - On a computer, hovering a manzana shows a bubble with how it stands and buttons to add or remove it, open its history or its territory's; it stays while the mouse is on it. **Colorear por → Último trabajo** turns the map into a heat map of the manzanas, from light (completed recently) to dark (longest ago), gray if never completed, with ◐ on those with partial work since.
+- **Territorio** (superintendente, siervo): which territories were completed most and least recently, as a heat map and a list (sorted by **Más atrasados**, **Número** or **Más recientes**, remembered on each phone; tap one for its history), the **S-13** (*Registro de asignación de territorio*) for any service year, ready to print or save as PDF, and the houses not to visit.
   - A territory is **completed** on the day the last of its manzanas gets a *Completo* informe (*Parcial* doesn't count).
   - It counts as **assigned** from the first salida (or informe) that includes it after its previous completion. *Asignado a* lists that round's conductores.
   - Nothing new is entered for this: it all comes from the salidas and informes.
-- **Editar** (superintendente, siervo): label and reshape manzanas, add meeting points (also the families' houses and places used in the program), lay the paper map over the streets. **Conductores** (create and send their links) only for the superintendente.
-  - **Puntos:** a meeting point no longer used can be **archived**: it leaves the map and the Planificar list, but salidas that already use it keep its name and Cómo llegar. **Restaurar** brings it back. Saved in the Config sheet.
+  - **Editar mapa:** label and reshape manzanas (and the territories' colors), the **Áreas**, and the **Imagen guía** (the paper map laid over the streets, only on that device).
   - **Áreas:** for parts of the territory that are apart (e.g. an isolated territory in another neighborhood). The main area starts as "Territorios"; add others and assign territories to them. With two or more areas that have manzanas, the map gets a switch to jump between them (for everyone), and the app opens on the area last chosen. Saved in the Config sheet, so no Apps Script change was needed.
+- **Más (everyone):** who you are, **Entrar con PIN** / **Salir**, the sections that aren't in the phone's tab bar, **Registrar casa que no se visita**, **Conductores** (superintendente), **Compartir la app**, how to install it, the version, and **Tamaño de letra**: **A− / A+** chooses Pequeña, Normal (default), Grande or Muy grande; each phone remembers it. It's needed because an iPhone's own text size doesn't reach web apps, and an app added to the home screen has no zoom button. The printed S-13 keeps its size.
 - **Installable:**
-  - Android Chrome shows **📲 Instalar la app** on the Mapa tab.
+  - Android Chrome: **Más → 📲 Instalar la app**.
   - On iPhone: Share → **Agregar a inicio** (Add to Home Screen).
   - Either way it opens full-screen with its own icon.
 - **Works with weak signal:**
@@ -107,7 +114,7 @@ The Sheet enforces these rules, not only the page: without a conductor link or a
 
 ### 4. Give conductores their links
 
-In the app, enter as admin → **Editar → Conductores**. Add each conductor by name, then **Enviar enlace**: show them the QR, or send it by WhatsApp. Opening that link once is enough; the phone remembers it.
+In the app, enter as superintendente → **Más → Conductores**. Add each conductor by name, then **Enviar enlace**: show them the QR, or send it by WhatsApp. Opening that link once is enough; the phone remembers it.
 
 If a link reaches the wrong person, **Desactivar** it (or **Borrar** it) and add the conductor again to get a new link. Their past informes stay.
 
@@ -117,7 +124,7 @@ Replace the old embed with a **Button** that links to the app link from the QR w
 
 ## Updating later
 
-- **The page** (`index.html`, `manzanas.js`, …): push to GitHub. Phones pick up the new version the next time they open the app with signal. Bump `VERSION` in `index.html` (shown at the bottom of Editar) so you can confirm it.
+- **The page** (`index.html`, `manzanas.js`, …): push to GitHub. Phones pick up the new version the next time they open the app with signal. Bump `VERSION` in `index.html` (shown at the bottom of Más) so you can confirm it.
   - If you change which files `sw.js` caches, also bump `APP` in `sw.js`.
 - **The Apps Script** (`apps-script/`): paste the new files, then **Manage deployments → New version**.
   - Always edit the existing deployment. A brand-new deployment gets a new link, and everyone would need a new QR code.
