@@ -266,6 +266,8 @@
   .pg-t th { background:#1f3d8a; color:#fff; padding:1mm 2mm; font-size:10.5pt; }
   .pg-t td { border-top:1px solid #444; padding:.5mm 2mm; text-align:center; font-size:9.5pt; }
   .pg-t tr.sab td { background:#d9ead3; } .pg-t tr.dom td { background:#c9daf8; } .pg-t tr.esp td { background:#fff2cc; }
+  .mapa-page { padding:6mm; text-align:center; }
+  .mapa-page img { max-width:100%; max-height:255mm; display:block; margin:0 auto; }
   .pg-nota { font-size:9pt; margin:0; background:#fff2cc; border:1.5px solid #1f3d8a; border-top:0; padding:1mm 2mm; }
   .badge { display:inline-block; min-width:18px; padding:0 5px; margin-left:4px; border-radius:9px; background:#d9480f; color:#fff; font-size:calc(11px * var(--k)); font-weight:700; line-height:18px; text-align:center; }
   .sug { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:8px; }
@@ -336,7 +338,7 @@
 <script src="manzanas.js"></script>
 <script>
 // ---------- settings ----------
-const VERSION = '33 · 02/11/2026'; // shown in Más; bump when changing this file
+const VERSION = '34 · 02/11/2026'; // shown in Más; bump when changing this file
 const PALETTE = ['#fff27a','#f7a8c8','#f9b26b','#ffd6b3','#b9dd8f','#80e0e8','#bba0ec','#a9c8f0','#d0d0d0','#f3df5a','#eaa3f2','#a3dcbc'];
 const PLAZA = [-17.794426, -63.134013];
 // Rough placement of the paper map over the streets: top-left, top-right, bottom-left corners.
@@ -2027,7 +2029,8 @@ function lugaresPanel() {
   const admin = isAdmin();
   if (admin && (addingPunto || (editSel && editSel.kind === 'punto'))) return puntoForm();
   const ls = lugares(), arch = archivados(), fuera = DB.Puntos.filter(p => arch.has(p.id) && !ls.some(x => x.p.id === p.id));
-  return (admin ? '<div class="actions" style="margin-top:0"><button class="b primary" data-act="ptadd">+ Agregar lugar</button></div>' : '') +
+  return '<div class="actions" style="margin-top:0">' + (admin ? '<button class="b primary" data-act="ptadd">+ Agregar lugar</button>' : '') +
+      (ls.length ? '<button class="b" data-act="mapaimp">🖨 Mapa para imprimir</button>' : '') + '</div>' +
     (ls.length ? ls.map(x => '<div class="card">' + lugarHtml(x.p, x.prox, false) + (admin && arch.has(x.p.id) ? '<div class="muted">Archivado (todavía tiene salidas)</div>' : '') + '</div>').join('')
       : '<p class="muted">Todavía no hay lugares de salida.</p>') +
     (admin && fuera.length ? '<details><summary>Archivados (' + fuera.length + ')</summary><p class="muted">No salen en el mapa ni al planificar.</p>' + ptList(fuera, 'Restaurar') + '</details>' : '');
@@ -2595,17 +2598,9 @@ async function salidaImage(s) {
     const c = map.project(bounds.getCenter(), z);
     const ox = c.x - W / 2, oy = c.y - mapH / 2;
     const xy = ll => { const q = map.project(L.latLng(ll), z); return [q.x - ox, headH + q.y - oy]; };
-    const jobs = [];
-    TILE_URL[base].forEach((tpl, layer) => {
-      for (let tx = Math.floor(ox / 256); tx <= Math.floor((ox + W) / 256); tx++)
-        for (let ty = Math.floor(oy / 256); ty <= Math.floor((oy + mapH) / 256); ty++)
-          jobs.push(loadImg(tpl.replace('{z}', z).replace('{x}', tx).replace('{y}', ty)).then(img => ({ img, tx, ty, layer })));
-    });
-    const tiles = await Promise.all(jobs);
     cx.save();
     cx.beginPath(); cx.rect(0, headH, W, mapH); cx.clip();
-    cx.fillStyle = '#e8e8e8'; cx.fillRect(0, headH, W, mapH);
-    tiles.sort((a, b) => a.layer - b.layer).forEach(t => { if (t.img) cx.drawImage(t.img, t.tx * 256 - ox, headH + t.ty * 256 - oy); });
+    await pintarTeselas(cx, ox, oy, headH, W, mapH, z, base);
     const sat = base === 'satelite', mine = new Set(bs.map(b => b.id));
     const poly = (coords, fill, stroke, lw, alpha) => {
       cx.beginPath();
@@ -2652,6 +2647,113 @@ async function openShare(s) {
     '<a class="b" href="https://wa.me/?text=' + encodeURIComponent(text) + '" target="_blank" rel="noopener">WhatsApp (texto)</a>' +
     '<a class="b" href="' + url + '" download="' + shareData.name + '">Descargar imagen</a></div>' +
     '<label>Texto</label><textarea rows="7" readonly onclick="this.select()">' + esc(text) + '</textarea>';
+  $('#share').classList.add('show');
+}
+
+/** Draws the map's background tiles (already clipped by the caller) for the view whose top-left pixel is (ox, oy) at zoom z. */
+async function pintarTeselas(cx, ox, oy, top, W, H, z, fondo) {
+  const jobs = [];
+  TILE_URL[fondo].forEach((tpl, layer) => {
+    for (let tx = Math.floor(ox / 256); tx <= Math.floor((ox + W) / 256); tx++)
+      for (let ty = Math.floor(oy / 256); ty <= Math.floor((oy + H) / 256); ty++)
+        jobs.push(loadImg(tpl.replace('{z}', z).replace('{x}', tx).replace('{y}', ty)).then(img => ({ img, tx, ty, layer })));
+  });
+  const tiles = await Promise.all(jobs);
+  cx.fillStyle = '#e8e8e8'; cx.fillRect(0, top, W, H);
+  tiles.sort((a, b) => a.layer - b.layer).forEach(t => { if (t.img) cx.drawImage(t.img, t.tx * 256 - ox, top + t.ty * 256 - oy); });
+}
+
+// ---------- the map to print (Lugares → Mapa para imprimir): territories, manzanas and meeting points, with a legend of the letters ----------
+let mapaImp = { area: '', fondo: 'calles' };
+/** The map as a PNG: a title, the area with its territories, manzanas and meeting points, then what each letter is. */
+async function mapaImagen(o) {
+  const W = 1800, MAXH = 2300, sat = o.fondo === 'satelite';
+  const bs = BL.filter(b => areaDe(b.t) === o.area).length ? BL.filter(b => areaDe(b.t) === o.area) : BL;
+  const base = bs.length ? bs.flatMap(b => b.coords) : (window.MANZANAS || []).flatMap(c => c.coords);
+  const zona = L.latLngBounds(base).pad(0.08), arch = archivados();
+  const puntos = DB.Puntos.filter(p => !arch.has(p.id) && zona.contains([+p.lat, +p.lng])).sort(porLetra);
+  const bounds = L.latLngBounds(base.concat(puntos.map(p => [+p.lat, +p.lng])));
+  let z = 18;
+  for (; z > 12; z--) {
+    const a = map.project(bounds.getNorthWest(), z), b = map.project(bounds.getSouthEast(), z);
+    if (b.x - a.x <= W - 140 && b.y - a.y <= MAXH - 140) break;
+  }
+  const nw = map.project(bounds.getNorthWest(), z), se = map.project(bounds.getSouthEast(), z);
+  const mapH = Math.round(Math.max(700, se.y - nw.y + 140));
+  const cols = 3, colW = (W - 80) / cols, filas = Math.ceil(puntos.length / cols);
+  const HEAD = 120, legH = puntos.length ? 90 + filas * 54 : 0, FOOT = 50;
+  const cv = document.createElement('canvas'), cx = cv.getContext('2d');
+  cv.width = W; cv.height = HEAD + mapH + legH + FOOT;
+  cx.fillStyle = '#fff'; cx.fillRect(0, 0, W, cv.height);
+  const areas = areasConManzanas(), nombreArea = areas.length > 1 ? (areas.find(a => a.id === o.area) || areas[0]).nombre : '';
+  cx.textBaseline = 'middle'; cx.textAlign = 'left'; cx.fillStyle = '#1d2330';
+  cx.font = 'bold 50px system-ui,sans-serif'; cx.fillText('Territorios · ' + CONGRE + (nombreArea ? ' — ' + nombreArea : ''), 40, 52);
+  cx.font = '28px system-ui,sans-serif'; cx.fillStyle = '#6b7280'; cx.fillText(fmt(ymd(new Date())), 40, 98);
+  // the map
+  const c = map.project(bounds.getCenter(), z), ox = c.x - W / 2, oy = c.y - mapH / 2;
+  const xy = ll => { const q = map.project(L.latLng(ll), z); return [q.x - ox, HEAD + q.y - oy]; };
+  cx.save();
+  cx.beginPath(); cx.rect(0, HEAD, W, mapH); cx.clip();
+  await pintarTeselas(cx, ox, oy, HEAD, W, mapH, z, o.fondo);
+  const label = (text, px, py, font, fill, borde) => {
+    cx.font = font; cx.textAlign = 'center'; cx.textBaseline = 'middle';
+    cx.lineWidth = borde || 6; cx.strokeStyle = '#fff'; cx.lineJoin = 'round'; cx.strokeText(text, px, py);
+    cx.fillStyle = fill; cx.fillText(text, px, py);
+  };
+  BL.forEach(b => {
+    cx.beginPath();
+    b.coords.forEach((ll, i) => { const [px, py] = xy(ll); i ? cx.lineTo(px, py) : cx.moveTo(px, py); });
+    cx.closePath();
+    cx.globalAlpha = sat ? 0.45 : 0.6; cx.fillStyle = tColor(b.t); cx.fill(); cx.globalAlpha = 1;
+    cx.lineWidth = 2; cx.strokeStyle = sat ? '#fff' : '#4a4a4a'; cx.stroke();
+  });
+  if (z >= 16) BL.forEach(b => { const [px, py] = xy(centroid(b.coords)); label(String(b.n), px, py, 'bold ' + (z >= 17 ? 22 : 16) + 'px system-ui,sans-serif', '#111', 4); });
+  const terr = {};
+  BL.forEach(b => (terr[b.t] = terr[b.t] || []).push(centroid(b.coords)));
+  Object.keys(terr).forEach(t => { const [px, py] = xy(centroid(terr[t])); label(t, px, py, 'bold ' + (z >= 17 ? 64 : 44) + 'px system-ui,sans-serif', '#d6337f', 7); });
+  const punto = (p, px, py, r) => {
+    cx.beginPath(); cx.arc(px, py, r, 0, 2 * Math.PI);
+    cx.fillStyle = '#1d2330'; cx.fill(); cx.lineWidth = r / 5; cx.strokeStyle = '#fff'; cx.stroke();
+    cx.font = 'bold ' + Math.round(r * 1.05) + 'px system-ui,sans-serif'; cx.fillStyle = '#fff'; cx.textAlign = 'center'; cx.textBaseline = 'middle';
+    cx.fillText(p.letra, px, py + 1);
+  };
+  puntos.forEach(p => { const [px, py] = xy([+p.lat, +p.lng]); punto(p, px, py, 26); });
+  cx.restore();
+  cx.lineWidth = 2; cx.strokeStyle = '#1d2330'; cx.strokeRect(1, HEAD, W - 2, mapH);
+  // the legend: what each letter is
+  if (puntos.length) {
+    let y = HEAD + mapH + 50;
+    cx.textAlign = 'left'; cx.textBaseline = 'middle'; cx.fillStyle = '#1d2330'; cx.font = 'bold 34px system-ui,sans-serif';
+    cx.fillText('Lugares de salida', 40, y);
+    y += 56;
+    puntos.forEach((p, i) => {
+      const x = 40 + (i % cols) * colW, yy = y + Math.floor(i / cols) * 54;
+      punto(p, x + 22, yy, 22);
+      cx.textAlign = 'left'; cx.fillStyle = '#1d2330'; cx.font = '30px system-ui,sans-serif';
+      let t = p.nombre;
+      while (t.length > 3 && cx.measureText(t).width > colW - 70) t = t.slice(0, -2);
+      cx.fillText(t === p.nombre ? t : t + '…', x + 58, yy + 1);
+    });
+  }
+  cx.textAlign = 'right'; cx.textBaseline = 'middle'; cx.font = '22px system-ui,sans-serif'; cx.fillStyle = '#6b7280';
+  cx.fillText(sat ? '© Esri, Maxar' : '© OpenStreetMap', W - 40, cv.height - 25);
+  return new Promise(res => cv.toBlob(res, 'image/png'));
+}
+/** Lugares → Mapa para imprimir: a preview, the area and background, and Imprimir / Compartir / Descargar. */
+async function openMapaImprimir() {
+  const areas = areasConManzanas();
+  if (!areas.some(a => a.id === mapaImp.area)) mapaImp.area = areaActual();
+  const blob = await mapaImagen(mapaImp), url = URL.createObjectURL(blob), name = 'mapa-territorios.png';
+  shareData = { blob, text: 'Mapa de los territorios y lugares de salida — ' + CONGRE, name, url };
+  const canFiles = !!(navigator.canShare && navigator.canShare({ files: [new File([blob], name, { type: 'image/png' })] }));
+  const seg = (k, opts) => '<span class="seg">' + opts.map(([v, l]) => '<button data-act="mapaimpop" data-k="' + k + '" data-v="' + esc(v) + '" class="' + (mapaImp[k] === v ? 'on' : '') + '">' + esc(l) + '</button>').join('') + '</span>';
+  $('#share .box').innerHTML = '<div class="row-t"><span>Mapa para imprimir</span><button class="b small" data-act="shareclose">✕</button></div>' +
+    '<div class="actions" style="margin:0 0 10px">' + (areas.length > 1 ? seg('area', areas.map(a => [a.id, a.nombre])) : '') +
+      seg('fondo', [['calles', 'Calles'], ['satelite', 'Satélite']]) + '</div>' +
+    '<img src="' + url + '" alt="Mapa de los territorios con los lugares de salida">' +
+    '<div class="actions"><button class="b primary" data-act="mapaimpprint">🖨 Imprimir o PDF</button>' +
+    (canFiles || navigator.share ? '<button class="b" data-act="sharenative">Compartir…</button>' : '') +
+    '<a class="b" href="' + url + '" download="' + name + '">Descargar imagen</a></div>';
   $('#share').classList.add('show');
 }
 
@@ -2766,6 +2868,7 @@ const AYUDA = {
     'En el mes: verde = con manzanas, naranja = ' + (isAdmin() ? 'sin manzanas' : 'manzanas por asignar') + ', gris = sin territorio, con borde = especial.']],
   lugares: ['Lugares', () => ['Cada lugar de salida con la próxima salida de ahí (tócala para abrirla) y las siguientes.',
     '<b>Cómo llegar</b> abre Google Maps; <b>Compartir</b> manda la ubicación y las próximas salidas; <b>Ver en el mapa</b> lo muestra.',
+    '<b>🖨 Mapa para imprimir</b>: el mapa de los territorios con la letra de cada lugar y abajo qué es cada letra. Se imprime, se guarda como PDF o se manda como imagen.',
     isAdmin() && '<b>+ Agregar lugar</b> y luego toca el mapa donde está. <b>Editar</b> cambia el nombre, y en el mapa puedes arrastrarlo.',
     isAdmin() && '<b>Archivar</b> un lugar que ya no se usa: deja de salir en el mapa y al planificar. <b>Archivados</b> (abajo) los restaura.']],
   lugar: ['Lugar de salida', () => ['Pon una letra corta (A, B…) y el nombre.', 'Para moverlo, arrástralo en el mapa (uno nuevo: toca otro lugar del mapa).',
@@ -2877,6 +2980,12 @@ const ACT = {
   ir(el) { irA(el.dataset.v); },
   async share() { await busy(openShare(shownSalida()), 'Preparando imagen…'); },
   sharenative() { shareNative(); },
+  async mapaimp() { await busy(openMapaImprimir(), 'Preparando el mapa…'); },
+  async mapaimpop(el) { mapaImp[el.dataset.k] = el.dataset.v; await busy(openMapaImprimir(), 'Preparando el mapa…'); },
+  mapaimpprint() {
+    ACT.shareclose();
+    openPrint('Mapa de los territorios', '<section class="pg-page mapa-page"><img src="' + shareData.url + '" alt="Mapa de los territorios"></section>');
+  },
   shareclose() { $('#share').classList.remove('show'); },
   goinf(el) {
     tab = 'informe'; showLogin = false; nv = null; verBloque = ''; verTerr = null; verSalida = ''; verMapa = false; mapaGrande = false;
