@@ -24,6 +24,7 @@ The Sheet enforces these rules, not only the page: without a conductor link or a
 - **On a computer:** the sections in a bar on the left, the screen next to it, and the map always on the right. Drag the line between the screen and the map to make the screen wider or narrower (double-click it for the usual width); each computer remembers it.
 - **On a phone:** a tab bar at the bottom with five sections; the others are in **Más**. The map shows above the screen only where it's needed (a salida, Informe, choosing manzanas, Territorio, a history, a house not to visit, editing a place). Drag the bar under the map to make it taller or shorter (each phone remembers it); **⤢** on the map makes it fill the screen. **Mapa** is the map on its own.
   - Phones: Publicador Inicio · Calendario · Lugares · Mapa · Más; Conductor Inicio · Calendario · Informe · Mapa · Más; Superintendente and siervo Inicio · Calendario · Planificar · Territorio · Más.
+- **Help:** the first time someone opens the app (and again when they come in as conductor or with a PIN), a short **guided tour** dims the screen and moves a spotlight from section to section, opening each one behind it, with a sentence about what it's for (**Siguiente**, **‹**, **Saltar**; Esc and the arrow keys work on a computer). It's different for each role and for phones and computers. **Más → Cómo usar la app** shows it again. The **?** in the top bar explains the screen that's open (Informe, choosing manzanas, Editar mapa, Lugares…). Automated browsers don't get the tour by themselves.
 - **‹** (top left) goes back from a screen opened over a section (a salida, a history, the Planificar editor, Editar mapa, Conductores, Semana modelo…). Tapping a section's tab again goes back to its start.
 
 ## What it does
@@ -44,6 +45,8 @@ The Sheet enforces these rules, not only the page: without a conductor link or a
   - The manzana names in Planificar and Informe, and the territories in Territorio, open the same screens.
 - **Faltan informes:** salidas from the last 45 days with manzanas nobody reported show at the top of Inicio, with **Informar**, and as a number on the Informe tab (on Inicio for those whose tab bar has no Informe). A conductor sees their own salidas (matched by name); the admin sees everyone's.
 - **Informe** (conductor, admin): mark each manzana *Completo*, *Parcial* or *No se hizo*.
+  - A conductor sees their own salidas (matched by name) by default; **También las de otros** shows the rest of that day's salidas too, to report or correct them. The admin sees them all.
+  - Salidas still to report come first. Those where every manzana is already reported are folded under **✓ Ya informadas**; open it to correct them. **Marcar “No se hizo” en las que faltan** only marks what's on screen.
   - What was already reported for that day shows up marked, and any conductor or admin can correct it. Tapping the marked state again deletes that informe.
   - There is one informe per manzana per day. A correction keeps who reported it first and adds who changed it (*editadoPor*, *editado* in the Sheet).
 - **↻** (top right) brings in the latest data from the Sheet. The app also does it by itself when it comes back to the screen after a minute, and when you open Informe. Pulling the page down doesn't reload the app.

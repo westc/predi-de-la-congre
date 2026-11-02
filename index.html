@@ -159,6 +159,21 @@
   #saving .box { background:#1d2330; color:#fff; padding:14px 22px; border-radius:12px; display:flex; align-items:center; gap:12px; font-size:calc(15px * var(--k)); box-shadow:0 6px 24px rgba(0,0,0,.25); flex-wrap:wrap; justify-content:center; max-width:90vw; }
   #saving .spin { width:20px; height:20px; border:3px solid rgba(255,255,255,.3); border-top-color:#fff; border-radius:50%; animation:spin .8s linear infinite; }
   @keyframes spin { to { transform:rotate(360deg); } }
+  /* the guided tour: the screen dimmed around a spotlight that moves from button to button, and a bubble */
+  #tour { position:fixed; inset:0; z-index:2900; }
+  #tour[hidden] { display:none; }
+  .tour-hole { position:fixed; border-radius:12px; box-shadow:0 0 0 200vmax rgba(15,20,35,.6); transition:left .4s ease, top .4s ease, width .4s ease, height .4s ease; pointer-events:none; }
+  .tour-hole::after { content:''; position:absolute; inset:-3px; border:3px solid #ffd54a; border-radius:14px; animation:pulso 1.5s ease-out infinite; }
+  .tour-hole.vacio::after { display:none; }
+  @keyframes pulso { from { opacity:1; transform:scale(1); } to { opacity:0; transform:scale(1.3); } }
+  .tour-tip { position:fixed; width:min(340px, calc(100vw - 24px)); background:#fff; color:var(--fg); border-radius:12px; padding:14px 16px 12px; box-shadow:0 10px 32px rgba(0,0,0,.35); transition:left .4s ease, top .4s ease; }
+  .tour-tip.entra > div:first-child { animation:entra .35s ease; }
+  @keyframes entra { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
+  .tour-pie { display:flex; align-items:center; gap:6px; margin-top:12px; }
+  .tour-pie .muted { margin-right:auto; }
+  @media (prefers-reduced-motion: reduce) { .tour-hole, .tour-tip { transition:none; } .tour-hole::after, .tour-tip.entra > div:first-child { animation:none; } }
+  ul.ayuda { margin:8px 0; padding-left:20px; }
+  ul.ayuda li { margin:7px 0; }
   #pending { display:none; align-items:center; gap:8px; padding:6px 12px; background:#fff1e0; color:#7a4100; font-size:calc(14px * var(--k)); border-bottom:1px solid #f3c99a; flex-wrap:wrap; }
   #pending.show { display:flex; }
   #pending .grow { flex:1; }
@@ -292,6 +307,7 @@
   <button class="tb" id="back" hidden title="Atrás" aria-label="Atrás"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
   <h1 id="title">Territorios · La Villa</h1>
   <a id="openfull" href="" target="_blank" rel="noopener" title="Abrir en una pestaña aparte">Abrir aparte ↗</a>
+  <button class="tb" id="help" title="Ayuda de esta pantalla" aria-label="Ayuda"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.6"/><circle cx="12" cy="17.2" r=".6" fill="currentColor"/></svg></button>
   <button class="tb" id="refresh" title="Traer los últimos datos de la hoja" aria-label="Actualizar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v5h-5"/></svg></button>
 </header>
 <div id="bars">
@@ -305,6 +321,7 @@
 <nav id="nav" aria-label="Secciones"></nav>
 <div id="saving"><div class="box"><div class="spin"></div><span id="saving-msg">Guardando…</span><button class="b small" id="saving-skip" hidden>Seguir sin esperar</button></div></div>
 <div id="toast"></div>
+<div id="tour" hidden role="dialog" aria-label="Guía de la app"><div class="tour-hole"></div><div class="tour-tip"></div></div>
 <div id="share"><div class="box"></div></div>
 <div id="s13"></div>
 <div id="setup"><div class="box">
@@ -319,7 +336,7 @@
 <script src="manzanas.js"></script>
 <script>
 // ---------- settings ----------
-const VERSION = '32 · 02/11/2026'; // shown in Más; bump when changing this file
+const VERSION = '33 · 02/11/2026'; // shown in Más; bump when changing this file
 const PALETTE = ['#fff27a','#f7a8c8','#f9b26b','#ffd6b3','#b9dd8f','#80e0e8','#bba0ec','#a9c8f0','#d0d0d0','#f3df5a','#eaa3f2','#a3dcbc'];
 const PLAZA = [-17.794426, -63.134013];
 // Rough placement of the paper map over the streets: top-left, top-right, bottom-left corners.
@@ -1395,7 +1412,7 @@ function highlightSet() {
   if (verBloque) return new Set([verBloque]);
   if (verTerr != null) return new Set(BL.filter(b => b.t === verTerr).map(b => b.id));
   if (shownSalida()) return new Set(salidaBlocks(shownSalida()));
-  if (tab === 'informe') return new Set(Object.keys(infForm));
+  if (tab === 'informe') return new Set(informeIds());
   if (enPlan()) return new Set(plan.bloques);
   if (tab === 'territorio') return terrSub && editSel && editSel.kind === 'bloque' ? new Set([editSel.id]) : null;
   // Elsewhere: today's salidas still to be reported, else the next one (the reported ones show their result instead).
@@ -1910,6 +1927,7 @@ function masPanel() {
     (canReport() && !tabs.includes('informe') ? item('ir', 'informe', '📝', 'Informe de predicación') : '') +
     (canReport() ? item('nvnew', '', '🚫', 'Registrar casa que no se visita') : '') +
     (isSuper() ? item('massub', 'conductores', '👤', 'Conductores', 'Sus enlaces para enviar informes') : '') +
+    item('guia', '', '💡', 'Cómo usar la app', 'Una guía corta de cada sección') +
     item('appshare', '', '📤', 'Compartir la app') +
     '<h3>Tamaño de letra</h3>' + letraControl() + installHint() +
     '<p class="muted" style="margin-top:24px">Versión ' + VERSION + '</p>';
@@ -2148,11 +2166,33 @@ function fillInforme() {
   }));
 }
 
+let infOtros = false; // a conductor sees their own salidas in Informe unless they ask for the others too
+/**
+ * What Informe shows for infFecha: salidas still to report, those already reported (every manzana has an informe),
+ * other manzanas tapped on the map, and how many salidas of other conductores are hidden.
+ */
+function informeVista() {
+  const todas = DB.Salidas.filter(s => s.fecha === infFecha && !sinTerr(s) && salidaBlocks(s).some(id => BYID[id])).sort(bySalidaTime);
+  const filtrar = WHO.role === 'conductor' && !infOtros;
+  const salidas = filtrar ? todas.filter(esMia) : todas;
+  const inSalida = id => todas.some(s => s.id === infForm[id].salida && salidaBlocks(s).includes(id));
+  return {
+    pend: salidas.filter(s => !informada(s)), hechas: salidas.filter(informada), inSalida,
+    extras: Object.keys(infForm).filter(id => BYID[id] && !inSalida(id)),
+    otras: WHO.role === 'conductor' ? todas.filter(s => !esMia(s)).length : 0,
+  };
+}
+/** The manzanas Informe shows (the salidas of other conductores left out). */
+function informeIds() {
+  const v = informeVista();
+  return v.pend.concat(v.hechas).flatMap(salidaBlocks).filter(id => infForm[id]).concat(v.extras);
+}
+
 function informePanel() {
-  const salidas = DB.Salidas.filter(s => s.fecha === infFecha && !sinTerr(s)).sort(bySalidaTime);
+  const v = informeVista(), inSalida = v.inSalida;
   const row = id => {
     const f = infForm[id], b = BYID[id];
-    const s = f.salida && salidas.find(x => x.id === f.salida);
+    const s = f.salida && DB.Salidas.find(x => x.id === f.salida);
     const asignada = s && salidaNotes(s)[id];
     const r = f.informe;
     return '<div class="row" data-row="' + id + '"><div class="row-t"><button class="link" data-act="bhist" data-id="' + id + '" title="Ver el historial">' + esc(bName(b)) + '</button>' +
@@ -2166,20 +2206,25 @@ function informePanel() {
       (f.estado ? '<input type="text" class="nota" data-in="nota" data-id="' + id + '" value="' + esc(f.nota) + '" placeholder="' + (f.estado === 'parcial' ? '¿Qué quedó pendiente? (ej.: falta lado de la calle 5)' : 'Nota (opcional)') + '">' : '') +
       '</div>';
   };
-  const inSalida = id => salidas.some(s => s.id === infForm[id].salida && salidaBlocks(s).includes(id));
-  const extras = Object.keys(infForm).filter(id => !inSalida(id) && BYID[id]);
-  const hay = Object.values(infForm).some(f => f.informe);
+  const card = s => '<div class="card"><div class="card-h">' + (s.hora ? esc(s.hora) + ' · ' : '') + (s.grupo ? esc(s.grupo) + ' · ' : '') + (s.punto ? esc(puntoName(s.punto)) : 'Salida') + '</div>' +
+    (s.conductor ? '<div class="muted">Conductor: ' + esc(s.conductor) + '</div>' : '') +
+    (s.notas ? '<div class="muted">' + esc(s.notas) + '</div>' : '') +
+    salidaBlocks(s).filter(id => infForm[id] && inSalida(id) && infForm[id].salida === s.id).map(row).join('') + '</div>';
+  const faltan = v.pend.flatMap(salidaBlocks).concat(v.extras).some(id => infForm[id] && !infForm[id].estado && !infForm[id].informe);
+  const algo = v.pend.length + v.hechas.length + v.extras.length > 0;
+  const hay = informeIds().some(id => infForm[id].informe);
   return '<label style="margin-top:0">Fecha</label><input type="date" data-in="inffecha" value="' + infFecha + '" max="' + ymd(new Date()) + '">' +
-    (hay ? '<p class="muted">Lo ya informado aparece marcado. Para borrar un informe, toca de nuevo el estado marcado.</p>' : '') +
-    (salidas.length ? '' : '<p class="muted">No hay salidas este día. Toca manzanas en el mapa para informarlas igual.</p>') +
-    salidas.map(s => '<div class="card"><div class="card-h">' + (s.hora ? esc(s.hora) + ' · ' : '') + (s.grupo ? esc(s.grupo) + ' · ' : '') + (s.punto ? esc(puntoName(s.punto)) : 'Salida') + '</div>' +
-      (s.conductor ? '<div class="muted">Conductor: ' + esc(s.conductor) + '</div>' : '') +
-      (s.notas ? '<div class="muted">' + esc(s.notas) + '</div>' : '') +
-      salidaBlocks(s).filter(id => infForm[id] && inSalida(id) && infForm[id].salida === s.id).map(row).join('') + '</div>').join('') +
-    (extras.length ? '<div class="card"><div class="card-h">Otras manzanas</div>' + extras.map(row).join('') + '</div>' : '') +
-    (Object.keys(infForm).length ? '<p class="muted">Para agregar otra manzana, tócala en el mapa.</p>' +
-      '<button class="b small" data-act="allno">Marcar “No se hizo” en las que faltan</button>' +
-      (isAdmin() ? '<label>Tu nombre</label><input type="text" data-in="quien" value="' + esc(store.get('territorios-quien') || '') + '" placeholder="Nombre de quien informa">'
+    (WHO.role === 'conductor' && (v.otras || infOtros) ? '<div class="seg" style="margin-top:10px">' +
+      '<button data-act="infotros" data-v="" class="' + (infOtros ? '' : 'on') + '">Mis salidas</button>' +
+      '<button data-act="infotros" data-v="1" class="' + (infOtros ? 'on' : '') + '">También las de otros (' + v.otras + ')</button></div>' : '') +
+    v.pend.map(card).join('') +
+    (v.extras.length ? '<div class="card"><div class="card-h">Otras manzanas</div>' + v.extras.map(row).join('') + '</div>' : '') +
+    (v.pend.length || v.extras.length ? '' : '<p class="muted">' + (v.hechas.length ? 'No falta nada por informar este día.' :
+      WHO.role === 'conductor' && !infOtros && v.otras ? 'No tienes salidas este día.' : 'No hay salidas este día.') + ' Para informar una manzana, tócala en el mapa.</p>') +
+    (faltan ? '<button class="b small" data-act="allno">Marcar “No se hizo” en las que faltan</button>' : '') +
+    (v.hechas.length ? '<details><summary>✓ Ya informadas (' + v.hechas.length + ')</summary>' +
+      '<p class="muted">Puedes corregirlas. Para borrar un informe, toca de nuevo el estado marcado.</p>' + v.hechas.map(card).join('') + '</details>' : '') +
+    (algo ? (isAdmin() ? '<label>Tu nombre</label><input type="text" data-in="quien" value="' + esc(store.get('territorios-quien') || '') + '" placeholder="Nombre de quien informa">'
         : '<p class="muted">Informa: <b>' + esc(WHO.nombre) + '</b></p>') +
       '<div class="actions"><button class="b primary" data-act="enviar">' + (hay ? 'Guardar informe' : 'Enviar informe') + '</button></div>' : '');
 }
@@ -2619,6 +2664,160 @@ function shareNative() {
   });
 }
 
+// ---------- help: a guided tour of the sections (the first time, and from Más) and ? tips for each screen ----------
+/** What each section is for, in the tour (one or two sentences). */
+const TOUR_TEXTO = {
+  hoy: () => '<b>Inicio:</b> la salida de hoy con <b>Cómo llegar</b>, y los próximos días.' + (canReport() ? ' Arriba aparecen las salidas que faltan informar.' : ''),
+  calendario: () => isAdmin() ? '<b>Calendario:</b> el programa del mes. Aquí se arma: <b>+ Salida</b>, la <b>Semana modelo</b>, imprimir o mandar una imagen.'
+    : '<b>Calendario:</b> el programa del mes. Toca una salida para ver dónde es y sus manzanas.',
+  lugares: () => '<b>Lugares:</b> dónde se sale y cuándo sale el próximo grupo de cada lugar. <b>Compartir</b> manda la ubicación.' + (isAdmin() ? ' Aquí también se agregan y cambian los lugares.' : ''),
+  mapa: () => '<b>Mapa:</b> todo el territorio. Toca una manzana para ver cuándo se trabajó; ◎ muestra dónde estás.',
+  informe: () => '<b>Informe:</b> marca cada manzana <b>Completo</b>, <b>Parcial</b> o <b>No se hizo</b> y toca <b>Enviar</b>.' + (WHO.role === 'conductor' ? ' Primero salen tus salidas.' : ''),
+  planificar: () => '<b>Planificar:</b> elige las manzanas de cada salida. Arriba están las que faltan; toca una y luego toca manzanas en el mapa, o <b>✨ Sugerir</b>.',
+  territorio: () => '<b>Territorio:</b> qué territorios llevan más tiempo sin completarse (más oscuro = más tiempo), el registro S-13 y <b>Editar mapa</b>.',
+  mas: () => '<b>Más:</b> tu cuenta' + (isAdmin() || WHO.role === 'conductor' ? '' : ' (Entrar con PIN)') + ', el tamaño de letra, compartir la app' +
+    (esMovil() ? ['lugares', 'informe'].filter(t => puedeVer(t) && !tabsVisibles().includes(t)).map(t => ', ' + TAB_NAMES[t]).join('') : '') + ' y esta guía.',
+};
+function pasosTour() {
+  const quien = isAdmin() ? 'Entraste como <b>' + ROLE_NAMES[WHO.role] + '</b>.' : WHO.role === 'conductor' ? 'Entraste como conductor: puedes enviar los informes.' : '';
+  return [{ texto: ['<b>¡Hola!</b>', quien, 'En un minuto te mostramos dónde está cada cosa.'].filter(Boolean).join(' ') }]
+    .concat(tabsVisibles().map(t => ({ el: '#nav [data-tab=' + t + ']', tab: t, texto: TOUR_TEXTO[t]() })))
+    .concat([{ el: '#help', texto: '¿No sabes qué hacer en una pantalla? Toca <b>?</b> para ver una ayuda corta.' },
+      { el: '#refresh', texto: '<b>↻</b> trae lo último de la hoja (también lo hace solo).' }])
+    .concat(esMovil() ? [] : [{ el: '#rz', texto: 'Arrastra esta línea para hacer el panel más ancho o más angosto.' }])
+    .concat([{ texto: '<b>Listo.</b> Puedes ver esta guía otra vez en <b>Más → Cómo usar la app</b>.' }]);
+}
+let tour = null; // { pasos, i, desde }
+function abrirTour() {
+  map.closePopup(); $('#share').classList.remove('show');
+  tour = { pasos: pasosTour(), i: 0, desde: tab };
+  store.set('predi-guia-' + WHO.role, '1');
+  $('#tour').hidden = false;
+  pasoTour();
+}
+function cerrarTour() {
+  const desde = tour && tour.desde;
+  tour = null; $('#tour').hidden = true;
+  if (desde && desde !== tab) irA(desde);
+}
+/** Shows step i: opens its section behind, moves the spotlight to its button, and puts the bubble next to it. */
+function pasoTour(sinIr) {
+  const p = tour.pasos[tour.i], n = tour.pasos.length, ultimo = tour.i === n - 1;
+  if (p.tab && p.tab !== tab && !sinIr) irA(p.tab);
+  const el = p.el && document.querySelector(p.el), r0 = el && el.getBoundingClientRect();
+  const r = r0 && r0.width && r0.height ? r0 : null;
+  const hole = $('#tour .tour-hole'), tip = $('#tour .tour-tip');
+  hole.classList.toggle('vacio', !r);
+  Object.assign(hole.style, r ? { left: r.left - 5 + 'px', top: r.top - 5 + 'px', width: r.width + 10 + 'px', height: r.height + 10 + 'px' }
+    : { left: innerWidth / 2 + 'px', top: innerHeight / 2 + 'px', width: '0px', height: '0px' });
+  tip.innerHTML = '<div>' + p.texto + '</div><div class="tour-pie"><span class="muted">' + (tour.i + 1) + ' de ' + n + '</span>' +
+    (ultimo ? '' : '<button class="b small" data-tour="fin">Saltar</button>') +
+    (tour.i ? '<button class="b small" data-tour="-1" aria-label="Anterior">‹</button>' : '') +
+    '<button class="b small primary" data-tour="1">' + (ultimo ? 'Listo' : 'Siguiente ›') + '</button></div>';
+  // the bubble: beside the sidebar or a tall element, else below (or above) the button, else in the middle
+  const w = tip.offsetWidth, h = tip.offsetHeight, m = 12, lim = (v, a, b) => Math.max(a, Math.min(b, v));
+  let left, top;
+  if (!r) { left = (innerWidth - w) / 2; top = (innerHeight - h) / 2; }
+  else if (!esMovil() && (r.right < 100 || r.height > innerHeight * 0.5)) { left = r.right + 18; top = r.top + r.height / 2 - h / 2; }
+  else { left = r.left + r.width / 2 - w / 2; top = innerHeight - r.bottom >= h + 24 ? r.bottom + 16 : r.top - h - 16; }
+  tip.style.left = lim(left, m, innerWidth - w - m) + 'px';
+  tip.style.top = lim(top, m, innerHeight - h - m) + 'px';
+  tip.classList.remove('entra'); void tip.offsetWidth; tip.classList.add('entra');
+  const b = tip.querySelector('[data-tour="1"]'); if (b) b.focus();
+}
+function moverTour(d) {
+  if (!tour) return;
+  if (d === 'fin' || tour.i + d >= tour.pasos.length) return cerrarTour();
+  tour.i = Math.max(0, tour.i + d);
+  pasoTour();
+}
+/** The first time someone opens the app (or comes in as conductor or with a PIN), the tour of what they can do. */
+function tourInicial() {
+  if (tour || START_SALIDA || store.get('predi-guia-' + WHO.role) || $('#setup').classList.contains('show')) return;
+  if (navigator.webdriver && !window.TOUR_EN_PRUEBAS) return; // automated tests drive the app themselves
+  abrirTour();
+}
+
+/** The ? tips: which screen is open (the same order as pantalla()). */
+function ayudaClave() {
+  if (showLogin) return 'login';
+  if (nv) return 'nv';
+  if (BYID[verBloque]) return 'bloque';
+  if (verTerr != null && BL.some(b => b.t === verTerr)) return 'terr';
+  if (shownSalida()) return 'salida';
+  if (enPlan()) return 'plan';
+  if (tab === 'territorio' && terrSub) return 'editar';
+  if (tab === 'mas' && masSub) return 'conductores';
+  if (tab === 'calendario' && calSub) return 'modelo';
+  if (tab === 'lugares' && (addingPunto || (editSel && editSel.kind === 'punto'))) return 'lugar';
+  return tab;
+}
+const AYUDA = {
+  hoy: ['Inicio', () => ['La tarjeta grande es la salida de hoy (o la próxima): hora, lugar, conductor y manzanas.',
+    '<b>Cómo llegar</b> abre Google Maps con el camino. <b>Ver en el mapa</b> muestra sus manzanas, y desde ahí puedes <b>Compartir</b> la salida por WhatsApp.',
+    canReport() && '<b>Faltan informes</b> (arriba): salidas pasadas con manzanas sin informar. Toca <b>Informar</b>.',
+    'Abajo están los próximos días; el programa completo está en <b>Calendario</b>.']],
+  calendario: ['Calendario', () => ['<b>Lista</b> muestra las salidas día por día; <b>Mes</b>, el mes en cuadros. Con ‹ › cambias de mes.',
+    isAdmin() ? 'Toca una salida para cambiarla. <b>+ Salida</b> (o <b>+ salida</b> junto a un día) agrega una.' : 'Toca una salida para ver dónde es, sus manzanas y cómo llegar.',
+    isAdmin() && '<b>Semana modelo</b> es la semana normal; con <b>+ N de la semana modelo</b> se llena el mes. Después cambia los conductores o agrega las especiales.',
+    isAdmin() && '<b>Sin territorio</b>: no se le asignan manzanas (predicación pública, por carta…). <b>Arreglo especial</b> sale con ** en el programa.',
+    isAdmin() && 'Los cambios esperan en la barra naranja: <b>Guardar todo</b> los guarda y <b>Descartar</b> los deshace.',
+    isAdmin() && '🖨 imprime el programa (o lo guarda como PDF) y 📤 hace una imagen para WhatsApp.',
+    'En el mes: verde = con manzanas, naranja = ' + (isAdmin() ? 'sin manzanas' : 'manzanas por asignar') + ', gris = sin territorio, con borde = especial.']],
+  lugares: ['Lugares', () => ['Cada lugar de salida con la próxima salida de ahí (tócala para abrirla) y las siguientes.',
+    '<b>Cómo llegar</b> abre Google Maps; <b>Compartir</b> manda la ubicación y las próximas salidas; <b>Ver en el mapa</b> lo muestra.',
+    isAdmin() && '<b>+ Agregar lugar</b> y luego toca el mapa donde está. <b>Editar</b> cambia el nombre, y en el mapa puedes arrastrarlo.',
+    isAdmin() && '<b>Archivar</b> un lugar que ya no se usa: deja de salir en el mapa y al planificar. <b>Archivados</b> (abajo) los restaura.']],
+  lugar: ['Lugar de salida', () => ['Pon una letra corta (A, B…) y el nombre.', 'Para moverlo, arrástralo en el mapa (uno nuevo: toca otro lugar del mapa).',
+    'Al terminar, toca <b>Listo</b> y después <b>Guardar todo</b> en la barra naranja.']],
+  mapa: ['Mapa', () => ['Toca una manzana para ver cuándo se trabajó, su historial y las casas que no se visitan.', 'Toca el número grande de un territorio para acercarte.',
+    '◎ muestra dónde estás; <b>Calles / Satélite</b> cambia el fondo.', 'Los colores de hoy: verde = completo, naranja = parcial, rojo = no se hizo.']],
+  informe: ['Informe', () => ['Elige la fecha (hoy viene puesta).',
+    'Marca cada manzana: <b>Completo</b>, <b>Parcial</b> (con cuánto se hizo y una nota de qué falta) o <b>No se hizo</b>. Luego toca <b>Enviar informe</b>.',
+    WHO.role === 'conductor' && 'Primero salen tus salidas. <b>También las de otros</b> muestra las demás de ese día.',
+    'Las salidas ya informadas están en <b>✓ Ya informadas</b>: ábrelo para corregir. Tocar otra vez el estado marcado borra ese informe.',
+    'Para informar una manzana que no estaba en la salida, tócala en el mapa.',
+    'Sin señal, el informe queda guardado en el celular y se envía solo cuando hay conexión.']],
+  planificar: ['Planificar', () => ['Arriba, <b>Faltan manzanas</b>: salidas del programa que todavía no las tienen. Toca una para elegirlas.',
+    '<b>+ Nueva salida</b> crea una salida aparte del programa.', 'Las salidas que ya tienen manzanas también se pueden abrir para cambiarlas.']],
+  plan: ['Elegir manzanas', () => ['Toca las manzanas en el mapa para agregarlas o quitarlas; el número grande de un territorio lo agrega entero.',
+    '<b>✨ Sugerir</b> propone las que llevan más tiempo sin completarse, juntas y cerca del lugar de salida. Toca otra vez para otra sugerencia; en <b>Cómo sugiere</b> están las opciones.',
+    'Cada manzana puede llevar una nota (ej.: solo la calle 5). Las que quedaron parciales traen lo que faltó.',
+    PUEDE_HOVER && 'Con el mouse sobre una manzana ves cómo está y botones para agregarla o ver su historial.',
+    'Toca <b>Guardar</b>. ‹ sale sin guardar.']],
+  territorio: ['Territorio', () => ['Los colores del mapa: más claro = completado hace poco, más oscuro = hace más tiempo, gris = nunca completado.',
+    'Toca un territorio para ver sus manzanas, sus vueltas y sus informes.', 'Un territorio queda completado cuando la última de sus manzanas tiene un informe “Completo”.',
+    '<b>Registro S-13</b>: elige el año de servicio y toca <b>Ver</b> para imprimirlo.', '<b>Editar mapa</b>: las manzanas, las áreas y la imagen guía.']],
+  editar: ['Editar mapa', () => ['<b>Manzanas</b>: toca una manzana gris para darle territorio y número; toca una ya hecha para cambiarla. ⬠ (a la izquierda del mapa) dibuja una nueva.',
+    '<b>Cambiar forma</b>: arrastra las esquinas y toca <b>Terminar forma</b>.', '<b>Áreas</b>: partes del territorio que quedan aparte; el mapa tendrá un botón para pasar de una a otra.',
+    '<b>Imagen guía</b>: pon el mapa de papel encima de las calles para ayudarte (solo se ve en este equipo).',
+    'Los cambios esperan en la barra naranja hasta que toques <b>Guardar todo</b>.']],
+  mas: ['Más', () => ['Aquí está tu cuenta: ' + (isAdmin() ? '<b>Salir</b> cuando termines.' : WHO.role === 'conductor' ? '<b>Salir</b> te deja ver la app como publicador, y puedes volver a entrar desde aquí.' : '<b>Entrar con PIN</b> es para el superintendente de servicio y el siervo de territorios.'),
+    '<b>Tamaño de letra</b>: A− y A+ cambian el tamaño de todo en este celular.', '<b>Compartir la app</b> muestra el código QR y el enlace para otros.',
+    'Para instalar la app en la pantalla de inicio, abre <b>Instalar la app</b>.']],
+  conductores: ['Conductores', () => ['Escribe el nombre y toca <b>Agregar</b>: se abre su enlace para mandárselo (QR o WhatsApp).',
+    'Con su enlace, cada conductor envía los informes con su nombre. Es solo para esa persona: si llega a otra persona, <b>Desactívalo</b> y agrégalo de nuevo.']],
+  modelo: ['Semana modelo', () => ['Las salidas de una semana normal: día, hora, lugar, grupo y conductor.', 'En el Calendario, <b>+ N de la semana modelo</b> las pone en el mes (desde hoy, sin repetir).',
+    'Los cambios esperan en la barra naranja hasta <b>Guardar todo</b>.']],
+  salida: ['Salida', () => ['El mapa muestra sus manzanas (rojo) y el lugar de salida.', '<b>Cómo llegar</b> abre Google Maps; <b>Compartir</b> hace una imagen y un texto para WhatsApp.',
+    canReport() && '<b>Informar</b> abre el informe de ese día.', '‹ vuelve a donde estabas.']],
+  bloque: ['Historial de la manzana', () => ['Cuándo se completó por última vez, el trabajo parcial que quedó, las próximas salidas que la tienen y cada informe por año.',
+    'Toca otra manzana en el mapa para ver la suya.']],
+  terr: ['Territorio', () => ['Cómo está el territorio, cada manzana (tócala para su historial), cada vuelta desde que se asignó hasta que se completó, y sus informes.']],
+  nv: ['Casa que no se visita', () => ['Toca en el mapa la manzana de la casa.', 'Escribe la dirección o cómo es la casa (obligatorio). La foto es opcional.',
+    'Se verá en el mapa, en las salidas con esa manzana y al compartirlas.']],
+  login: ['Entrar con PIN', () => ['Para el superintendente de servicio o el siervo de territorios. Cada uno tiene su PIN; se cambian en la hoja de Google.']],
+};
+function abrirAyuda() {
+  const [titulo, items] = AYUDA[ayudaClave()] || AYUDA.hoy;
+  shareData = null;
+  $('#share .box').innerHTML = '<div class="row-t"><span>' + esc(titulo) + '</span><button class="b small" data-act="shareclose">✕</button></div>' +
+    '<ul class="ayuda">' + items().filter(Boolean).map(x => '<li>' + x + '</li>').join('') + '</ul>' +
+    '<p class="muted">‹ vuelve atrás · ↻ trae lo último de la hoja' + (esMovil() ? ' · la barra bajo el mapa cambia su tamaño' : ' · la línea junto al mapa cambia el ancho del panel') + '.</p>' +
+    '<div class="actions"><button class="b" data-act="guia">▶ Ver la guía de la app</button></div>';
+  $('#share').classList.add('show');
+}
+
 // ---------- panel events ----------
 const ACT = {
   login() { showLogin = true; renderAll(); panel.scrollTop = 0; const el = $('#pin'); if (el) el.focus(); },
@@ -2633,6 +2832,7 @@ const ACT = {
     showLogin = false; tab = WHO.role === 'admin' ? 'calendario' : 'planificar'; // the superintendente makes the program
     renderAll();
     toast('Entraste como ' + ROLE_NAMES[WHO.role] + '.');
+    tourInicial();
   },
   async logout() {
     if (pendingCount() && !confirm('Hay cambios sin guardar. ¿Salir igual y perderlos?')) return;
@@ -2663,7 +2863,7 @@ const ACT = {
     history.replaceState(null, '', location.pathname + (DEMO ? '?demo&c=' : '?api=' + API_ID + '&c=') + ckey);
     try { await busy(sincronizar(), 'Entrando…'); } catch (e) { return; }
     if (WHO.role === 'conductor') { toast('Entraste como conductor: ' + WHO.nombre + '.'); flushCola(); }
-    renderAll();
+    renderAll(); tourInicial();
   },
   flush() { return flushCola(true); },
   async install() { const ev = installEvt; installEvt = null; ev.prompt(); await ev.userChoice; renderAll(); },
@@ -2691,7 +2891,13 @@ const ACT = {
   },
   pct(el) { const f = infForm[el.dataset.id]; f.porcentaje = f.porcentaje === el.dataset.v ? '' : el.dataset.v; f.touched = true; renderAll(); },
   infdrop(el) { delete infForm[el.dataset.id]; renderAll(); },
-  allno() { Object.values(infForm).filter(f => !f.estado && !f.informe).forEach(f => { f.estado = 'no'; f.porcentaje = ''; f.touched = true; }); renderAll(); },
+  allno() {
+    // only what's on screen: never the salidas of other conductores left out
+    const v = informeVista();
+    v.pend.flatMap(salidaBlocks).concat(v.extras).map(id => infForm[id]).filter(f => f && !f.estado && !f.informe).forEach(f => { f.estado = 'no'; f.porcentaje = ''; f.touched = true; });
+    renderAll();
+  },
+  infotros(el) { infOtros = !!el.dataset.v; enSuLugar(); },
   async enviar() {
     const quien = isAdmin() ? (store.get('territorios-quien') || '').trim() : WHO.nombre; // the Sheet uses the conductor's own name anyway
     const ahora = new Date().toISOString();
@@ -2943,6 +3149,7 @@ const ACT = {
     if (confirm('¿Borrar a ' + c.nombre + '? Su enlace dejará de servir. (Sus informes se conservan.)')) await removeRows('Conductores', [c.id]);
   },
   appshare() { openAppShare(); },
+  guia() { abrirTour(); },
   sharetext() { navigator.share({ text: shareData.text }).catch(() => {}); },
   async copylink() {
     const el = $('#share-link');
@@ -3066,6 +3273,13 @@ panel.addEventListener('change', e => {
 panel.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'pin') ACT.pin(); });
 $('#nav').addEventListener('click', e => { const b = e.target.closest('button[data-tab]'); if (b) irA(b.dataset.tab); });
 $('#back').addEventListener('click', atras);
+$('#help').addEventListener('click', abrirAyuda);
+$('#tour').addEventListener('click', e => { const b = e.target.closest('[data-tour]'); if (b) moverTour(b.dataset.tour === 'fin' ? 'fin' : +b.dataset.tour); });
+document.addEventListener('keydown', e => {
+  if (!tour) return;
+  if (e.key === 'Escape') cerrarTour(); else if (e.key === 'ArrowRight') moverTour(1); else if (e.key === 'ArrowLeft') moverTour(-1);
+});
+window.addEventListener('resize', () => { if (tour) pasoTour(true); });
 // Phone ⇄ computer (turning a tablet, resizing the window): other sections, and the map always shown on a computer.
 matchMedia('(max-width: 799px)').addEventListener('change', () => { mapaGrande = false; verMapa = false; renderAll(); });
 
@@ -3172,6 +3386,7 @@ async function start() {
     await busy(sincronizar(), saved ? 'Buscando cambios…' : 'Cargando los datos de la hoja…', { skip: !!saved, quiet: !!saved });
     lastLoad = Date.now();
     if (!saved) fitStart();
+    setTimeout(tourInicial, 500);
   } catch (e) {
     if (saved) toast(e.offline ? 'Sin conexión: se muestran los últimos datos guardados.' : e.message, 5000);
   }
