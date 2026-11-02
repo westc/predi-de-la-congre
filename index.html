@@ -195,7 +195,11 @@
   .lbl-b { background:transparent; border:0; box-shadow:none; padding:0; font-weight:700; font-size:calc(12px * var(--k)); color:#111; text-shadow:0 0 2px #fff,0 0 2px #fff,0 0 2px #fff; }
   .lbl-b::before { display:none; }
   .lbl-t span { display:block; transform:translate(-50%,-50%); font:700 calc(30px * var(--k))/1 system-ui,sans-serif; color:#e0408f; opacity:.9; text-shadow:0 0 3px #fff,0 0 3px #fff; white-space:nowrap; cursor:pointer; }
-  .lbl-p span { display:flex; align-items:center; justify-content:center; width:24px; height:24px; transform:translate(-50%,-50%); border-radius:50%; background:#1d2330; color:#fff; font:700 calc(13px * var(--k)) system-ui,sans-serif; border:2px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,.4); }
+  .lbl-p span { position:absolute; left:0; top:0; display:flex; align-items:center; justify-content:center; width:24px; height:24px; transform:translate(-50%,-50%); border-radius:50%; background:#1d2330; color:#fff; font:700 calc(13px * var(--k)) system-ui,sans-serif; border:2px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,.4); }
+  /* a letter moved off its spot (points too close together): a dot on the exact spot and a line to the letter */
+  .pt-linea { position:absolute; left:0; top:0; overflow:visible; pointer-events:none; }
+  .pt-linea line { stroke:#1d2330; stroke-width:2; }
+  .pt-punto { position:absolute; left:-5px; top:-5px; width:10px; height:10px; border-radius:50%; background:#1d2330; border:2px solid #fff; box-sizing:border-box; }
   .handle span { display:block; width:16px; height:16px; transform:translate(-50%,-50%); border-radius:50%; background:#e0408f; border:2px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,.5); }
   .handle.center span { background:#1f4fbf; width:22px; height:22px; }
   .far .lbl-b { display:none; }
@@ -338,7 +342,7 @@
 <script src="manzanas.js"></script>
 <script>
 // ---------- settings ----------
-const VERSION = '34 · 02/11/2026'; // shown in Más; bump when changing this file
+const VERSION = '35 · 02/11/2026'; // shown in Más; bump when changing this file
 const PALETTE = ['#fff27a','#f7a8c8','#f9b26b','#ffd6b3','#b9dd8f','#80e0e8','#bba0ec','#a9c8f0','#d0d0d0','#f3df5a','#eaa3f2','#a3dcbc'];
 const PLAZA = [-17.794426, -63.134013];
 // Rough placement of the paper map over the streets: top-left, top-right, bottom-left corners.
@@ -1466,11 +1470,57 @@ function hoverInfo(b) {
     '<button class="b small" data-act="thist" data-v="' + b.t + '">📜 Territorio ' + b.t + '</button></div>';
 }
 
+/**
+ * Meeting points too close together for their letters (pos: their pixels, r: a letter's radius): how far to move each
+ * letter, [dx, dy], so the letters of each group sit in a ring around it without covering each other. Each one keeps a
+ * dot on its exact spot, with a line to its letter.
+ */
+function separarPuntos(pos, r) {
+  const grupo = pos.map((_, i) => i), raiz = i => grupo[i] === i ? i : (grupo[i] = raiz(grupo[i]));
+  for (let i = 0; i < pos.length; i++) for (let j = i + 1; j < pos.length; j++)
+    if (Math.hypot(pos[i][0] - pos[j][0], pos[i][1] - pos[j][1]) < 2 * r + 4) grupo[raiz(i)] = raiz(j);
+  const grupos = {}, out = pos.map(() => [0, 0]);
+  pos.forEach((_, i) => (grupos[raiz(i)] = grupos[raiz(i)] || []).push(i));
+  Object.values(grupos).filter(g => g.length > 1).forEach(g => {
+    const k = g.length, cx = g.reduce((t, i) => t + pos[i][0], 0) / k, cy = g.reduce((t, i) => t + pos[i][1], 0) / k;
+    const R = Math.max(2 * r + 8, (r + 6) / Math.sin(Math.PI / k)); // room for the lines, and neighbors on the ring don't touch
+    // each letter goes the way its point lies from the middle of the group (straight up if they're on the same spot)
+    const ang = i => pos[i][0] - cx || pos[i][1] - cy ? Math.atan2(pos[i][1] - cy, pos[i][0] - cx) : -Math.PI / 2;
+    const orden = g.slice().sort((a, b) => ang(a) - ang(b)), a0 = ang(orden[0]);
+    orden.forEach((i, j) => {
+      const a = a0 + 2 * Math.PI * j / k;
+      out[i] = [Math.round(cx + R * Math.cos(a) - pos[i][0]), Math.round(cy + R * Math.sin(a) - pos[i][1])];
+    });
+  });
+  return out;
+}
+/** A meeting point's letter on the map, moved (dx, dy) off its spot when it's too close to others. */
+function iconPunto(letra, dx, dy) {
+  return L.divIcon({ className: 'lbl-p', iconSize: [0, 0], html: '<span' + (dx || dy ? ' style="left:' + dx + 'px;top:' + dy + 'px"' : '') + '>' + esc(letra) + '</span>' });
+}
+// The dot on the exact spot and the line to the moved letter, in a layer under all the letters (so no line crosses a letter).
+map.createPane('puntoLineas').style.zIndex = 590;
+const gLineas = L.layerGroup().addTo(map);
+let puntoMarcas = []; // [{ m, letra, off }] the meeting points on the map, to spread their letters at each zoom
+function ajustarPuntos() {
+  const off = separarPuntos(puntoMarcas.map(x => { const q = map.latLngToLayerPoint(x.m.getLatLng()); return [q.x, q.y]; }), 13);
+  gLineas.clearLayers();
+  puntoMarcas.forEach((x, i) => {
+    const [dx, dy] = off[i];
+    if (dx || dy) gLineas.addLayer(L.marker(x.m.getLatLng(), { pane: 'puntoLineas', interactive: false, keyboard: false, pmIgnore: true,
+      icon: L.divIcon({ className: '', iconSize: [0, 0], html: '<svg class="pt-linea" width="1" height="1"><line x1="0" y1="0" x2="' + dx + '" y2="' + dy + '"/></svg><i class="pt-punto"></i>' }) }));
+    if (dx === x.off[0] && dy === x.off[1]) return;
+    x.off = off[i];
+    x.m.setIcon(iconPunto(x.letra, dx, dy));
+  });
+}
+map.on('zoomend', () => ajustarPuntos());
+
 function renderMap() {
   areaCtl.refresh();
   if (shapeLayer) return; // don't redraw while a shape is being edited
   hoverTip.remove(); tipFor = null; overTip = false; clearTimeout(tipTimer);
-  gBloques.clearLayers(); gTerr.clearLayers(); gPuntos.clearLayers(); gManzanas.clearLayers(); gTemp.clearLayers();
+  gBloques.clearLayers(); gTerr.clearLayers(); gPuntos.clearLayers(); gLineas.clearLayers(); gManzanas.clearLayers(); gTemp.clearLayers();
   const hi = highlightSet();
   const sat = base === 'satelite';
   const unsaved = PEND.save.Bloques || {};
@@ -1509,9 +1559,10 @@ function renderMap() {
   });
   const arch = archivados(), hoyStr = ymd(new Date());
   const enUso = new Set(DB.Salidas.filter(x => x.fecha >= hoyStr).map(x => x.punto).concat(shownSalida() ? [shownSalida().punto] : []));
+  puntoMarcas = [];
   DB.Puntos.filter(p => !arch.has(p.id) || enUso.has(p.letra)).forEach(p => {
     const m = L.marker([+p.lat, +p.lng], {
-      icon: L.divIcon({ className: 'lbl-p', html: '<span>' + esc(p.letra) + '</span>', iconSize: [0, 0] }),
+      icon: iconPunto(p.letra, 0, 0),
       draggable: tab === 'lugares' && isAdmin() && !shownSalida(), pmIgnore: true,
     });
     m.bindTooltip(esc(p.nombre), { direction: 'top', offset: [0, -12] });
@@ -1519,9 +1570,12 @@ function renderMap() {
       if (tab === 'lugares' && isAdmin() && !shownSalida()) { addingPunto = false; editSel = { kind: 'punto', id: p.id }; renderAll(); panel.scrollTop = 0; return; }
       L.popup({ offset: [0, -10] }).setLatLng([+p.lat, +p.lng]).setContent(lugarHtml(p, proximasDesde(p.letra, 3), true)).openOn(map);
     });
+    m.on('dragstart', () => gLineas.clearLayers());
     m.on('dragend', () => { const ll = m.getLatLng(); stage('Puntos', { ...p, lat: ll.lat.toFixed(6), lng: ll.lng.toFixed(6) }); });
     gPuntos.addLayer(m);
+    puntoMarcas.push({ m, letra: p.letra, off: [0, 0] });
   });
+  ajustarPuntos();
   if (tab === 'lugares' && editSel && editSel.kind === 'punto' && !editSel.id) {
     gTemp.addLayer(L.marker([+editSel.lat, +editSel.lng], { icon: L.divIcon({ className: 'lbl-p', html: '<span style="background:#c0392b">?</span>', iconSize: [0, 0] }), pmIgnore: true, interactive: false }));
   }
@@ -2717,7 +2771,14 @@ async function mapaImagen(o) {
     cx.font = 'bold ' + Math.round(r * 1.05) + 'px system-ui,sans-serif'; cx.fillStyle = '#fff'; cx.textAlign = 'center'; cx.textBaseline = 'middle';
     cx.fillText(p.letra, px, py + 1);
   };
-  puntos.forEach(p => { const [px, py] = xy([+p.lat, +p.lng]); punto(p, px, py, 26); });
+  const pos = puntos.map(p => xy([+p.lat, +p.lng])), off = separarPuntos(pos, 26);
+  puntos.forEach((p, i) => { // close together: a dot on the spot and a line to its letter
+    const [px, py] = pos[i], [dx, dy] = off[i];
+    if (!dx && !dy) return;
+    cx.beginPath(); cx.moveTo(px, py); cx.lineTo(px + dx, py + dy); cx.lineWidth = 7; cx.strokeStyle = '#fff'; cx.stroke(); cx.lineWidth = 3; cx.strokeStyle = '#1d2330'; cx.stroke();
+    cx.beginPath(); cx.arc(px, py, 8, 0, 2 * Math.PI); cx.fillStyle = '#1d2330'; cx.fill(); cx.lineWidth = 3; cx.strokeStyle = '#fff'; cx.stroke();
+  });
+  puntos.forEach((p, i) => punto(p, pos[i][0] + off[i][0], pos[i][1] + off[i][1], 26));
   cx.restore();
   cx.lineWidth = 2; cx.strokeStyle = '#1d2330'; cx.strokeRect(1, HEAD, W - 2, mapH);
   // the legend: what each letter is
