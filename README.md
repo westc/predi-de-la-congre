@@ -95,6 +95,7 @@ The Sheet enforces these rules, not only the page: without a conductor link or a
 | `sw.js` | GitHub Pages | Offline copy of the app and map tiles |
 | `apps-script/Code.gs` | Apps Script | Reads and writes the Sheet, checks the PIN, adds the QR menu. Photos of houses are kept in the *Fotos* sheet in pieces, since a cell holds at most 50,000 characters |
 | `apps-script/Qr.html` | Apps Script | The QR code window |
+| `CHANGELOG.md` | — | What changed in each version, and which ones need the Apps Script updated |
 | `tests/` | GitHub Actions | Browser tests of the app and tests of `Code.gs`; they run on every push (**Actions → Pruebas**). See `tests/README.md`. Only made-up names in them |
 
 ## Setup
@@ -137,7 +138,7 @@ Replace the old embed with a **Button** that links to the app link from the QR w
 
 ## Updating later
 
-- **The page** (`index.html`, `manzanas.js`, …): push to GitHub. Phones pick up the new version the next time they open the app with signal. Bump `VERSION` in `index.html` (shown at the bottom of Más) so you can confirm it.
+- **The page** (`index.html`, `manzanas.js`, …): push to GitHub. Phones pick up the new version the next time they open the app with signal. Bump `VERSION` in `index.html` (shown at the bottom of Más) so you can confirm it, and add the version to `CHANGELOG.md`.
   - If you change which files `sw.js` caches, also bump `APP` in `sw.js`.
 - **The Apps Script** (`apps-script/`): paste the new files, then **Manage deployments → New version**.
   - Always edit the existing deployment. A brand-new deployment gets a new link, and everyone would need a new QR code.
