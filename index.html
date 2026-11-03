@@ -363,7 +363,7 @@
 <script src="manzanas.js"></script>
 <script>
 // ---------- settings ----------
-const VERSION = '42 · 03/11/2026'; // shown in Más; bump when changing this file
+const VERSION = '43 · 03/11/2026'; // shown in Más; bump when changing this file
 const PALETTE = ['#fff27a','#f7a8c8','#f9b26b','#ffd6b3','#b9dd8f','#80e0e8','#bba0ec','#a9c8f0','#d0d0d0','#f3df5a','#eaa3f2','#a3dcbc'];
 const PLAZA = [-17.794426, -63.134013];
 // Rough placement of the paper map over the streets: top-left, top-right, bottom-left corners.
@@ -1146,10 +1146,9 @@ async function programaImagen(desde, hasta) {
   return new Promise(res => cv.toBlob(res, 'image/png'));
 }
 async function openProgramaImagen(desde, hasta) {
-  const blob = await programaImagen(desde, hasta), list = salidasEntre(desde, hasta), nombre = rangoNombre(desde, hasta);
-  const unMes = desde.slice(0, 7) === hasta.slice(0, 7);
-  const text = ['Programa de predicación — ' + nombre].concat(list.map(s => DIAS_LARGOS[diaDe(s.fecha)].slice(0, 3) + ' ' + diaCorto(s.fecha, unMes) +
-    ' · ' + horaCorta(s.hora) + ' · ' + lugarText(s) + (s.conductor ? ' · ' + s.conductor : '') + (s.especial === 'si' ? ' (**)' : ''))).join('\n');
+  const blob = await programaImagen(desde, hasta), nombre = rangoNombre(desde, hasta);
+  // the picture has the salidas; the message only says what it is ("…del 2 al 8 de noviembre", "…de noviembre de 2026")
+  const text = 'Hola, aquí está el programa de predicación ' + (/^del /.test(nombre) ? nombre : /^\d/.test(nombre) ? 'del ' + nombre : 'de ' + nombre) + '.';
   shareData = { blob, text, name: 'programa-' + desde + (desde === hasta ? '' : '_' + hasta) + '.png' };
   const url = URL.createObjectURL(blob);
   const canFiles = !!(navigator.canShare && navigator.canShare({ files: [new File([blob], shareData.name, { type: 'image/png' })] }));
@@ -1157,7 +1156,7 @@ async function openProgramaImagen(desde, hasta) {
     '<img src="' + url + '" alt="Programa ' + esc(nombre) + '">' +
     '<div class="actions">' + (canFiles || navigator.share ? '<button class="b primary" data-act="sharenative">Compartir…</button>' : '') +
     '<a class="b" href="' + url + '" download="' + shareData.name + '">Descargar imagen</a></div>' +
-    '<label>Texto</label><textarea rows="7" readonly onclick="this.select()">' + esc(text) + '</textarea>';
+    '<label>Mensaje (puedes cambiarlo)</label><textarea rows="2" oninput="shareData.text = this.value">' + esc(text) + '</textarea>';
   $('#share').classList.add('show');
 }
 

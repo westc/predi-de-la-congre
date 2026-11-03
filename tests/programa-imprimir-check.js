@@ -42,7 +42,10 @@ const PORT = process.env.PORT || 8765;
   // the picture of next week
   await page.click('[data-act=pgimp]'); await page.click('[data-act=pgimprango][data-v=proxima]'); await page.click('[data-act=pgimagen]'); await page.waitForTimeout(900);
   const img = await page.evaluate(() => ({ w: document.querySelector('#share img').naturalWidth, lineas: document.querySelector('#share textarea').value.split('\n').length, t: document.querySelector('#share .row-t span').textContent }));
-  console.log('image:', img); assert.equal(img.w, 1100); assert.equal(img.lineas, 8); assert(img.t.startsWith('Programa · del '));
+  console.log('image:', img); assert.equal(img.w, 1100); assert(img.t.startsWith('Programa · del '));
+  const msg = await page.inputValue('#share textarea'); console.log('message:', msg);
+  assert(/^Hola, aquí está el programa de predicación del \d+ (de [a-z]+ )?al \d+ de [a-z]+ de \d{4}\.$/.test(msg), msg);
+  await page.fill('#share textarea', 'Programa de la semana'); assert.equal(await page.evaluate(() => shareData.text), 'Programa de la semana', 'it can be changed');
   await page.click('#share [data-act=shareclose]');
   // a range without salidas can't be printed
   await page.click('[data-act=pgimp]'); await page.click('[data-act=pgimprango][data-v=fechas]');
