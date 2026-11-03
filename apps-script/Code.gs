@@ -54,7 +54,7 @@ const SITE_URL = 'https://westc.github.io/predi-de-la-congre/';
 
 // What the page may call through doPost.
 // Each one gets who_() as its first argument.
-const API = { getAll, cambios, save, remove, commit, informes, casa, borrarCasa, foto };
+const API = { getAll, cambios, save, remove, commit, informes, casa, borrarCasa, foto, enlace };
 // The ones that change data: they answer with the data as it is afterwards.
 const WRITES = ['save', 'remove', 'commit', 'informes', 'casa', 'borrarCasa'];
 
@@ -548,4 +548,30 @@ function fotoIds_(casaRow) {
   const n = parseInt(casaRow.foto, 10) || 0, ids = [];
   for (let i = 0; i < n; i++) ids.push(casaRow.id + '-' + i);
   return ids;
+}
+
+// ---------- Google Maps short links (Lugares: a place's location from a shared link) ----------
+
+/**
+ * Where a Google Maps short link (maps.app.goo.gl/…, as the Maps app shares them) leads: { url, lat, lng }.
+ * A web page can't follow it (another site), so this does: only Google's short links, only for the admin.
+ * lat/lng are filled in when the long address doesn't have them but its page does.
+ */
+function enlace(who, url) {
+  needAdmin_(who);
+  url = String(url || '').trim();
+  if (!/^https:\/\/(maps\.app\.goo\.gl|goo\.gl\/maps|g\.co\/kgs)\//i.test(url)) throw new Error('Ese no es un enlace corto de Google Maps.');
+  for (let i = 0; i < 6; i++) {
+    const r = UrlFetchApp.fetch(url, { followRedirects: false, muteHttpExceptions: true });
+    const h = r.getHeaders(), loc = h.Location || h.location;
+    if (!loc) {
+      const m = r.getContentText().match(/@(-?\d{1,2}\.\d{3,}),(-?\d{1,3}\.\d{3,})|\[null,null,(-?\d{1,2}\.\d{3,}),(-?\d{1,3}\.\d{3,})\]|center=(-?\d{1,2}\.\d{3,})%2C(-?\d{1,3}\.\d{3,})/);
+      const n = m ? m.slice(1).filter(Boolean) : [];
+      return { url, lat: n.length ? +n[0] : null, lng: n.length ? +n[1] : null };
+    }
+    url = /^https?:/.test(loc) ? loc : 'https://www.google.com' + loc;
+    if (!/^https:\/\/([a-z0-9-]+\.)*(google\.[a-z.]+|goo\.gl|g\.co)\//i.test(url)) throw new Error('El enlace no lleva a Google Maps.');
+    if (/!3d-?\d|@-?\d+\.\d+,-?\d|[?&](q|query|ll|center)=-?\d/.test(url)) return { url, lat: null, lng: null };
+  }
+  return { url, lat: null, lng: null };
 }

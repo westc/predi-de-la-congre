@@ -1,0 +1,11 @@
+{
+  "name": "predi-pruebas",
+  "private": true,
+  "description": "Browser tests of the app (Playwright with Chrome) and of apps-script/Code.gs. Run: sh run.sh",
+  "scripts": {
+    "test": "sh run.sh"
+  },
+  "dependencies": {
+    "playwright-core": "^1.61.1"
+  }
+}

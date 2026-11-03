@@ -34,18 +34,21 @@ The Sheet enforces these rules, not only the page: without a conductor link or a
 - **Calendario (everyone):** the month's program as a **Lista** (from today on) or a **Mes** grid (any month; tap a time to open that salida, or a day to list its salidas).
   - For the superintendente and the siervo it's also where the program is made: day, time, place (a meeting point), group, conductor and a detail. Each salida's time in the grid is green with manzanas, orange without, gray if sin territorio, outlined if especial. Tapping a salida opens its form right where it is (with **🗺 Manzanas** to choose them in Planificar); **+ salida** next to a day (or tapping a day in the grid) adds one that day.
   - Changes collect as **cambios sin guardar** (the orange bar), so a whole month can be worked on and then saved with **Guardar todo**, or dropped with **Descartar**. If the siervo chose manzanas for a salida in the meantime, saving keeps them.
+  - The **conductor** is chosen from the list of conductores (**Más → Conductores**), so the app knows whose salida it is: that conductor sees it first in Informe and in *Faltan informes*. **Otro…** types a name not in the list (someone visiting). Salidas whose conductor was typed by hand before are marked **no está en la lista**, to open and fix.
   - Mark a salida **sin territorio** (Predicación Pública, por carta, a trip) so no manzanas are asked for it and it never shows as a missing informe, or **arreglo especial (\*\*)**.
   - **Semana modelo:** the usual week, set once (its own screen). **+ N de la semana modelo** fills the month with it (from today on, without repeating what's there; the button only shows while there's something to add); then change conductors or add the special salidas.
   - **🖨** gives the program page (or PDF) and **📤** a picture and text of it for WhatsApp.
 - **Lugares (everyone):** each meeting point with the next salidas from there (day, time, group, conductor; tap to open), **Cómo llegar**, **Ver en el mapa**, and **Compartir**, which sends the place's Google Maps location and its next salidas (WhatsApp, share sheet, copy, or a QR code). Tapping a meeting point on the map shows the same.
   - **🖨 Mapa para imprimir:** a picture of the territories (their colors, territory and manzana numbers) with each meeting point's letter on the map and, below, what each letter is. Choose the area (if there are several) and **Calles** or **Satélite**; then **Imprimir o PDF** (print, or save as PDF from the print window), **Compartir…** or **Descargar imagen**.
   - Places too close together for their letters (or on the same spot) don't cover each other: on the map and on the printed map, each one keeps a dot on its exact spot and its letter moves out into a ring around the group, with a line back to the dot. On the app's map this is worked out again at each zoom, so the letters go back to their spots once there's room.
+  - **A place's location from Google Maps:** when adding or editing a place, paste a Google Maps link or coordinates and tap **Usar**. It reads the link the Maps app shares (`maps.app.goo.gl/…`, followed by the Sheet's script, since a page can't), long links (it takes the place's own spot, and its name if the place has none yet), coordinates (`-17.79154, -63.13717`) or degrees (`17°47'29.6"S 63°08'13.8"W`). A location far from the territory asks first. Moving a saved place this way shows a red **?** until **Listo**.
   - The superintendente and the siervo add places here (**+ Agregar lugar**, then tap the map), and **Editar** one to rename it, move it (drag it on the map), **Archivar** it or remove it. An archived place leaves the map and the Planificar list, but salidas that already use it keep its name and Cómo llegar; **Archivados** lists them to **Restaurar**. Saved in the Config sheet.
 - **History (everyone):** tapping a manzana on the map offers **📜 Historial** and **📜 Territorio N**:
   - **Manzana:** when it was last completed, partial work since, upcoming salidas with their notes, houses not to visit, and every informe by year, with who reported or changed it.
   - **Territorio:** its state, each manzana (tap one for its history), every round from assigned to completed and by whom, and all its informes by year.
   - The manzana names in Planificar and Informe, and the territories in Territorio, open the same screens.
 - **Faltan informes:** salidas from the last 45 days with manzanas nobody reported show at the top of Inicio, with **Informar**, and as a number on the Informe tab (on Inicio for those whose tab bar has no Informe). A conductor sees their own salidas (matched by name); the admin sees everyone's.
+  - **📤 Recordar** (superintendente, siervo) next to a salida writes a message to its conductor listing all their salidas still missing informes, with the link to the app (the superintendente's includes the conductor's own link). It can be changed, then sent by **WhatsApp**, the share sheet, or copied.
 - **Informe** (conductor, admin): mark each manzana *Completo*, *Parcial* or *No se hizo*.
   - Tap a manzana on the map (or its name in the list): it gets a thick blue outline, its row lights up and scrolls into view, and a bubble on the map marks it right there. The map paints each manzana as it's marked (green ✓, orange ◐, red ✕); those still to mark have a red border. After Completo or No se hizo the bubble closes so the next manzana can be tapped.
   - **Parcial** asks how much (~25/50/75%) and a **note of what's left, which is required** (in the bubble or the list); the informe isn't sent until it has one. Completo and No se hizo need nothing else.
@@ -91,6 +94,7 @@ The Sheet enforces these rules, not only the page: without a conductor link or a
 | `sw.js` | GitHub Pages | Offline copy of the app and map tiles |
 | `apps-script/Code.gs` | Apps Script | Reads and writes the Sheet, checks the PIN, adds the QR menu. Photos of houses are kept in the *Fotos* sheet in pieces, since a cell holds at most 50,000 characters |
 | `apps-script/Qr.html` | Apps Script | The QR code window |
+| `tests/` | GitHub Actions | Browser tests of the app and tests of `Code.gs`; they run on every push (**Actions → Pruebas**). See `tests/README.md`. Only made-up names in them |
 
 ## Setup
 
@@ -138,6 +142,8 @@ Replace the old embed with a **Button** that links to the app link from the QR w
   - Always edit the existing deployment. A brand-new deployment gets a new link, and everyone would need a new QR code.
 
 New columns are added to the Sheet automatically the first time the app talks to it after an update.
+
+- **The tests** run by themselves on GitHub after every push (**Actions → Pruebas**, a green ✓ or a red ✕ next to the commit). To run them on your computer: `cd tests && npm ci && sh run.sh`.
 
 ## Things to know
 

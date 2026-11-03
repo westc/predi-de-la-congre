@@ -348,7 +348,7 @@
 <script src="manzanas.js"></script>
 <script>
 // ---------- settings ----------
-const VERSION = '37 · 03/11/2026'; // shown in Más; bump when changing this file
+const VERSION = '38 · 03/11/2026'; // shown in Más; bump when changing this file
 const PALETTE = ['#fff27a','#f7a8c8','#f9b26b','#ffd6b3','#b9dd8f','#80e0e8','#bba0ec','#a9c8f0','#d0d0d0','#f3df5a','#eaa3f2','#a3dcbc'];
 const PLAZA = [-17.794426, -63.134013];
 // Rough placement of the paper map over the streets: top-left, top-right, bottom-left corners.
@@ -486,6 +486,12 @@ const Mock = (() => {
     },
     borrarCasa(w, id) { needAdmin(w); del('Fotos', [id]); del('NoVisitar', [id]); },
     foto(w, id) { const f = load().Fotos.find(r => r.casa === id); return f ? f.datos : ''; },
+    // the demo can't open Google's short links: any of them leads to the plaza, like Code.gs's enlace would
+    enlace(w, url) {
+      needAdmin(w);
+      if (!/^https:\/\/(maps\.app\.goo\.gl|goo\.gl\/maps|g\.co\/kgs)\//i.test(String(url))) throw new Error('Ese no es un enlace corto de Google Maps.');
+      return { url: 'https://www.google.com/maps/place/Plaza+Primero+de+Mayo/@' + PLAZA[0] + ',' + PLAZA[1] + ',17z/data=!3m1!4b1!4m6!3m5!1s0x0:0x0!8m2!3d' + PLAZA[0] + '!4d' + PLAZA[1], lat: null, lng: null };
+    },
   };
   return {
     call(fn, args, auth, v) {
@@ -891,7 +897,7 @@ const MESES_LARGOS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'ju
 const CONGRE = 'La Villa';
 let prog = { mes: ymd(new Date()).slice(0, 7), edit: null };
 function sinTerr(s) { return s.sinTerritorio === 'si'; }
-/** "Grupo 1 - Flia. Montenegro - Predicación Pública": group, place and detail. */
+/** "Grupo 1 - Flia. Vargas - Predicación Pública": group, place and detail. */
 function lugarText(s) {
   const p = DB.Puntos.find(x => x.letra === s.punto);
   return [s.grupo, p ? p.nombre : s.punto, s.notas].filter(Boolean).join(' - ');
@@ -919,7 +925,8 @@ function calendarioPanel() {
   const fila = s => editando(s.id) ? progForm() : '<div class="list-item click" data-act="' + (admin ? 'pgedit' : 'ver') + '" data-id="' + s.id + '"><div><b>' + esc(horaCorta(s.hora) || '—') + '</b> · ' + esc(lugarText(s) || '—') +
     (s.especial === 'si' ? ' <span class="tag">**</span>' : '') + sinGuardar(s.id) + '<div class="muted">' +
     (sinTerr(s) ? 'sin territorio' : salidaBlocks(s).length ? esc(describe(salidaBlocks(s))) : admin ? '<span class="warn">sin manzanas</span>' : 'manzanas por asignar') +
-    (s.conductor ? ' · ' + esc(s.conductor) : admin ? ' · sin conductor' : '') + '</div></div><span class="muted">›</span></div>';
+    (s.conductor ? ' · ' + esc(s.conductor) : admin ? ' · sin conductor' : '') +
+    (admin && conductorFuera(s.conductor) ? ' <span class="tag pend" title="No es uno de los conductores">no está en la lista</span>' : '') + '</div></div><span class="muted">›</span></div>';
   const nuevaEn = f => ed && ed.kind === 'salida' && !ed.id && ed.enDia === f ? progForm() : '';
   const dia = f => '<div class="pg-dia">' + DIAS_LARGOS[diaDe(f)] + ' ' + +f.slice(8) +
     (admin ? ' <button class="link pg-mas" data-act="pgnueva" data-v="' + f + '">+ salida</button>' : '') + '</div>' +
@@ -936,6 +943,8 @@ function calendarioPanel() {
       '<button class="b small" data-act="calsub" data-v="modelo">Semana modelo</button>' +
       (list.length ? '<button class="b small" data-act="pgimprimir" title="Imprimir el programa" aria-label="Imprimir el programa">🖨</button><button class="b small" data-act="pgimagen" title="Imagen para WhatsApp" aria-label="Imagen para WhatsApp">📤</button>' : '') + '</div>' : '') +
     nuevaEn('') +
+    (admin && list.some(x => conductorFuera(x.conductor)) ? '<p class="muted"><span class="warn">' + list.filter(x => conductorFuera(x.conductor)).length +
+      ' con un conductor que no está en la lista</span> · ábrelas y elígelo, para que cada uno vea sus salidas e informes</p>' : '') +
     (admin && sinManz ? '<p class="muted"><span class="warn">' + sinManz + (sinManz === 1 ? ' salida sin manzanas' : ' salidas sin manzanas') + '</span> · se eligen en Planificar</p>' : '') +
     (list.length ? '' : '<p class="muted">No hay salidas en ' + mesNombre(prog.mes) + '.</p>') +
     (progVista === 'calendario' ? calendario(porDia, admin ? null : { mes: prog.mes, dia: prog.dia, act: 'ver', actDia: 'pgdia', publico: true }) +
@@ -989,8 +998,7 @@ function progForm() {
     '<label>Lugar (punto de salida)</label><select data-in="pg" data-k="punto"><option value="">—</option>' +
       puntos.map(p => '<option value="' + esc(p.letra) + '"' + (e.punto === p.letra ? ' selected' : '') + '>' + esc(p.nombre) + '</option>').join('') + '</select>' +
     (puntos.length ? '' : '<p class="muted">Agrega los lugares (familias, Salón del Reino, plaza…) en Lugares.</p>') +
-    '<div class="grid2">' + txt('grupo', 'Grupo (opcional)', 'Ej.: Grupo 1') + txt('conductor', 'Conductor') + '</div>' +
-    '<datalist id="conductores">' + DB.Conductores.filter(c => c.activo !== 'no').map(c => '<option value="' + esc(c.nombre) + '">').join('') + '</datalist>' +
+    '<div class="grid2">' + txt('grupo', 'Grupo (opcional)', 'Ej.: Grupo 1') + '<div><label>Conductor</label>' + conductorCampo('pgcond', e.conductor || '', e._otro) + '</div></div>' +
     txt('notas', 'Detalle (opcional)', 'Ej.: Predicación Pública, Predi. por carta') +
     chk('sinTerritorio', 'Sin territorio (no se le asignan manzanas)') + chk('especial', 'Arreglo especial (**)') +
     '<div class="actions"><button class="b primary" data-act="pgguardar">Guardar</button>' +
@@ -1086,8 +1094,30 @@ function faltanInformes() {
 }
 const nameWords = n => sinTildes(String(n || '').toLowerCase()).split(/[^a-z]+/).filter(w => w.length >= 3 && !/^(hno|hna|hermano|hermana)$/.test(w));
 function sinTildes(s) { return s.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); }
-/** Whether a salida's conductor (typed by hand) is this conductor: they share a name ("Erick" ~ "Erick Moscoso"). */
-function esMia(s) { const mine = nameWords(WHO.nombre); return nameWords(s.conductor).some(w => mine.includes(w)); }
+/** Whether a salida's conductor (typed by hand) is this conductor: they share a name ("Juan" ~ "Juan Pérez"). */
+function esMia(s) { const mine = nameWords(WHO.nombre); return mismoNombre(s.conductor, WHO.nombre) || nameWords(s.conductor).some(w => mine.includes(w)); }
+const normNombre = n => sinTildes(String(n || '').toLowerCase()).replace(/\s+/g, ' ').trim();
+/** Two ways of writing the same name ("José  Pérez" = "jose pérez"). Salidas chosen from the list match exactly. */
+function mismoNombre(a, b) { return !!normNombre(a) && normNombre(a) === normNombre(b); }
+/** The active conductores' names, for the lists. */
+function nombresConductores() { return DB.Conductores.filter(c => c.activo !== 'no').map(c => c.nombre).sort((a, b) => a.localeCompare(b)); }
+/** A salida whose conductor was typed by hand and isn't one of the conductores (so the app can't tell whose it is). */
+function conductorFuera(nombre) { return !!nombre && DB.Conductores.length > 0 && !DB.Conductores.some(c => mismoNombre(c.nombre, nombre)); }
+/**
+ * The conductor of a salida (or of the semana modelo), chosen from the list of conductores so the app knows whose
+ * salida it is. "Otro…" lets a name be typed (someone visiting); one typed before stays, marked as not in the list.
+ */
+function conductorCampo(dataIn, valor, otro) {
+  const lista = nombresConductores();
+  if (otro || (!lista.length && valor)) return '<div class="sel-row" style="padding:0"><input type="text" data-in="' + dataIn + 'txt" value="' + esc(valor) + '" placeholder="Nombre del conductor">' +
+    (lista.length ? '<button class="b small" data-act="condlista" data-v="' + dataIn + '">Lista</button>' : '') + '</div>';
+  const fuera = valor && !lista.some(n => mismoNombre(n, valor));
+  return '<select data-in="' + dataIn + '"><option value="">— Sin conductor —</option>' +
+    lista.map(n => '<option value="' + esc(n) + '"' + (mismoNombre(n, valor) ? ' selected' : '') + '>' + esc(n) + '</option>').join('') +
+    (fuera ? '<option value="' + esc(valor) + '" selected>' + esc(valor) + ' (no está en la lista)</option>' : '') +
+    '<option value="__otro">Otro (escribir el nombre)…</option></select>' +
+    (fuera ? '<div class="muted warn">“' + esc(valor) + '” no es uno de los conductores: elígelo de la lista para que vea sus salidas e informes.</div>' : '');
+}
 /** What this person should report: everything for the admin, their own salidas for a conductor. */
 function misFaltantes() {
   return isAdmin() ? faltanInformes() : WHO.role === 'conductor' ? faltanInformes().filter(x => esMia(x.s)) : [];
@@ -1097,9 +1127,29 @@ function faltanBox() {
   if (!f.length) return '';
   return '<div class="card falta"><div class="card-h">⚠ Faltan informes (' + f.length + ')</div>' +
     f.slice(0, 5).map(x => '<div class="list-item"><div><b>' + esc(when(x.s)) + '</b>' + (isAdmin() && x.s.conductor ? ' · ' + esc(x.s.conductor) : '') +
-      '<div class="muted">Falta: ' + esc(describe(x.ids)) + '</div></div><button class="b small primary" data-act="goinf" data-v="' + x.s.fecha + '">Informar</button></div>').join('') +
+      '<div class="muted">Falta: ' + esc(describe(x.ids)) + '</div></div><div style="white-space:nowrap">' +
+      (isAdmin() && x.s.conductor ? '<button class="b small" data-act="recordar" data-v="' + esc(x.s.conductor) + '" title="Mandarle un recordatorio">📤 Recordar</button> ' : '') +
+      '<button class="b small primary" data-act="goinf" data-v="' + x.s.fecha + '">Informar</button></div></div>').join('') +
     (f.length > 5 ? '<p class="muted">… y ' + (f.length - 5) + ' más.</p>' : '') +
     '<details><summary>¿No se salió?</summary><p class="muted">Si no se salió (lluvia, etc.), toca Informar y luego “Marcar ‘No se hizo’ en las que faltan”.</p></details></div>';
+}
+
+/** A reminder for one conductor: every salida of theirs still missing informes, ready to send by WhatsApp. */
+function recordatorio(nombre) {
+  const suyas = faltanInformes().filter(x => mismoNombre(x.s.conductor, nombre)).sort((a, b) => bySalidaTime(a.s, b.s));
+  const c = DB.Conductores.find(x => mismoNombre(x.nombre, nombre) && x.activo !== 'no');
+  const link = c && c.clave ? conductorLink(c) : appLink(); // the superintendente has their personal link
+  return ['Hola, ' + nombre + '. Falta el informe de ' + (suyas.length === 1 ? 'esta salida' : 'estas salidas') + ':']
+    .concat(suyas.map(x => '• ' + when(x.s) + (x.s.punto ? ' · ' + puntoName(x.s.punto) : '') + ' — ' + describe(x.ids)))
+    .concat(['', 'Puedes enviarlo en la app (Informe): ' + link, 'Si no se salió, marca “No se hizo”. ¡Gracias!']).join('\n');
+}
+function openRecordar(nombre) {
+  shareData = { text: recordatorio(nombre) };
+  $('#share .box').innerHTML = '<div class="row-t"><span>Recordar a ' + esc(nombre) + '</span><button class="b small" data-act="shareclose">✕</button></div>' +
+    '<p class="muted">Puedes cambiar el texto antes de mandarlo.</p><textarea rows="9" id="rec-texto">' + esc(shareData.text) + '</textarea>' +
+    '<div class="actions">' + (navigator.share ? '<button class="b primary" data-act="recshare">Compartir…</button>' : '') +
+    '<button class="b' + (navigator.share ? '' : ' primary') + '" data-act="recwa">WhatsApp</button><button class="b" data-act="reccopiar">Copiar</button></div>';
+  $('#share').classList.add('show');
 }
 
 // ---------- suggested salida ----------
@@ -1589,7 +1639,7 @@ function renderMap() {
     puntoMarcas.push({ m, letra: p.letra, off: [0, 0] });
   });
   ajustarPuntos();
-  if (tab === 'lugares' && editSel && editSel.kind === 'punto' && !editSel.id) {
+  if (tab === 'lugares' && editSel && editSel.kind === 'punto' && editSel.lat) {
     gTemp.addLayer(L.marker([+editSel.lat, +editSel.lng], { icon: L.divIcon({ className: 'lbl-p', html: '<span style="background:#c0392b">?</span>', iconSize: [0, 0] }), pmIgnore: true, interactive: false }));
   }
   if (tab === 'territorio' && terrSub === 'editar' && isAdmin() && editSub === 'bloques') {
@@ -2107,13 +2157,56 @@ function lugaresPanel() {
       : '<p class="muted">Todavía no hay lugares de salida.</p>') +
     (admin && fuera.length ? '<details><summary>Archivados (' + fuera.length + ')</summary><p class="muted">No salen en el mapa ni al planificar.</p>' + ptList(fuera, 'Restaurar') + '</details>' : '');
 }
-/** Lugares → adding (tap the map) or changing a meeting point. */
+// ---------- a place's location from a Google Maps link or coordinates (Lugares) ----------
+const ENLACE_CORTO = /^https?:\/\/(maps\.app\.goo\.gl|goo\.gl\/maps|g\.co\/kgs)\//i;
+/**
+ * { lat, lng, nombre } from what was pasted: a Google Maps link (the place's own spot !3d…!4d…, ?q=, /place/lat,lng
+ * or the view @lat,lng), coordinates (-17.79154, -63.13717) or degrees (17°47'29.6"S 63°08'13.8"W); null if none.
+ * nombre is the place's name when the link has it (/maps/place/Salón+del+Reino/…).
+ */
+function leerUbicacion(texto) {
+  let t = String(texto || '').trim();
+  try { t = decodeURIComponent(t.replace(/\+/g, ' ')); } catch (e) {}
+  t = t.replace(/[()]/g, ' ').trim();
+  const n = '(-?\\d{1,3}(?:\\.\\d+)?)';
+  let ll = null;
+  for (const re of [new RegExp('!3d' + n + '!4d' + n), new RegExp('[?&](?:q|query|ll|destination|daddr|center)=(?:loc:)?\\s*' + n + '\\s*,\\s*' + n),
+    new RegExp('/place/' + n + '\\s*,\\s*' + n), new RegExp('@' + n + ',' + n), new RegExp('^' + n + '\\s*[,; ]\\s*' + n + '$')]) {
+    const m = t.match(re);
+    if (m) { ll = [+m[1], +m[2]]; break; }
+  }
+  const g = t.match(/(\d{1,3})\s*°\s*(\d{1,2})\s*['′]\s*(\d{1,2}(?:[.,]\d+)?)\s*["″]?\s*([NS])[\s,;]*(\d{1,3})\s*°\s*(\d{1,2})\s*['′]\s*(\d{1,2}(?:[.,]\d+)?)\s*["″]?\s*([EWO])/i);
+  if (!ll && g) {
+    const dec = (d, m, sec, h) => (+d + m / 60 + +String(sec).replace(',', '.') / 3600) * (/[SWO]/i.test(h) ? -1 : 1);
+    ll = [dec(g[1], g[2], g[3], g[4]), dec(g[5], g[6], g[7], g[8])];
+  }
+  if (!ll || !(Math.abs(ll[0]) <= 90 && Math.abs(ll[1]) <= 180) || (!ll[0] && !ll[1])) return null;
+  return { lat: ll[0], lng: ll[1], nombre: nombreLugar(t) };
+}
+/** The place's name in a Google Maps link (/maps/place/Salón+del+Reino/…), or ''. */
+function nombreLugar(url) {
+  let t = String(url || '');
+  try { t = decodeURIComponent(t.replace(/\+/g, ' ')); } catch (e) {}
+  const m = t.match(/\/maps\/place\/([^/@?]+)/);
+  return m && !/^-?\d/.test(m[1]) ? m[1].trim() : '';
+}
+/** The field to paste a place's location into. */
+function ubicacionCampo() {
+  return '<label>Ubicación: enlace de Google Maps o coordenadas</label>' +
+    '<div class="sel-row" style="padding:0"><input type="text" id="pt-ubic" placeholder="maps.app.goo.gl/… o -17.79154, -63.13717"><button class="b" data-act="ptubic">Usar</button></div>' +
+    '<details><summary>¿Cómo copio la ubicación?</summary><p class="muted">En Google Maps, toca el lugar → <b>Compartir</b> → <b>Copiar enlace</b>, y pégalo aquí. ' +
+    'O mantén presionado el punto exacto en el mapa de Google y copia las coordenadas que aparecen arriba.</p></details>';
+}
+/** Lugares → adding (tap the map, or paste a location) or changing a meeting point. */
 function puntoForm() {
-  if (!editSel) return '<p>Toca el mapa donde está el lugar de salida.</p><div class="actions"><button class="b" data-act="ptcancel">Cancelar</button></div>';
-  const p = DB.Puntos.find(x => x.id === editSel.id) || editSel;
+  if (!editSel) return '<p>Toca el mapa donde está el lugar de salida, o pega su ubicación:</p>' + ubicacionCampo() +
+    '<div class="actions"><button class="b" data-act="ptcancel">Cancelar</button></div>';
+  const p = { ...(DB.Puntos.find(x => x.id === editSel.id) || {}), ...Object.fromEntries(Object.entries(editSel).filter(([k, v]) => v != null && ['letra', 'nombre'].includes(k))) };
+  const nueva = p.id && editSel.lat; // a saved place moved with a link: saved with Listo
   return '<div class="grid2"><div><label>Letra</label><input type="text" id="pt-letra" maxlength="3" value="' + esc(p.letra || '') + '"></div>' +
     '<div><label>Nombre</label><input type="text" id="pt-nombre" value="' + esc(p.nombre || '') + '" placeholder="Salón del Reino"></div></div>' +
-    '<p class="muted">' + (p.id ? 'Para moverlo, arrástralo en el mapa.' : 'Para moverlo, toca otro lugar del mapa.') + '</p>' +
+    (nueva ? '<p class="pin-note">📍 Nueva ubicación: ' + esc(editSel.lat + ', ' + editSel.lng) + ' (se guarda con Listo).</p>' : '') +
+    '<p class="muted">' + (p.id ? 'Para moverlo, arrástralo en el mapa, o pega otra ubicación:' : 'Para moverlo, toca otro lugar del mapa, o pega otra ubicación:') + '</p>' + ubicacionCampo() +
     '<div class="actions"><button class="b primary" data-act="ptsave">Listo</button>' +
     (p.id ? '<button class="b" data-act="ptarch" data-id="' + esc(p.id) + '">' + (archivados().has(p.id) ? 'Restaurar' : 'Archivar') + '</button>' +
       '<button class="b danger" data-act="ptdel">Quitar</button>' : '') +
@@ -2393,8 +2486,7 @@ function planEditor() {
     '<div><label>Punto de salida</label><select data-in="p-punto"><option value="">—</option>' +
       DB.Puntos.filter(p => !archivados().has(p.id) || plan.punto === p.letra).sort(porLetra).map(p => '<option value="' + esc(p.letra) + '"' + (plan.punto === p.letra ? ' selected' : '') + '>' +
         esc(p.letra + ' – ' + p.nombre) + (archivados().has(p.id) ? ' (archivado)' : '') + '</option>').join('') + '</select></div>' +
-    '<label>Conductor</label><input type="text" data-in="p-conductor" list="conductores" value="' + esc(plan.conductor) + '">' +
-    '<datalist id="conductores">' + DB.Conductores.filter(c => c.activo !== 'no').map(c => '<option value="' + esc(c.nombre) + '">').join('') + '</datalist>' +
+    '<label>Conductor</label>' + conductorCampo('pcond', plan.conductor || '', plan._otro) +
     '<label>Notas de la salida</label><input type="text" data-in="p-notas" value="' + esc(plan.notas) + '">';
   return (o ? '<div class="sal-h">' + esc(when(o)) + '</div><div class="muted">' + esc(lugarText(o) || '—') + (o.conductor ? ' · ' + esc(o.conductor) : '') + '</div>' +
       '<details><summary>Cambiar fecha, lugar o conductor</summary>' + datos + '</details>' : datos) +
@@ -2990,11 +3082,12 @@ function ayudaClave() {
 const AYUDA = {
   hoy: ['Inicio', () => ['La tarjeta grande es la salida de hoy (o la próxima): hora, lugar, conductor y manzanas.',
     '<b>Cómo llegar</b> abre Google Maps con el camino. <b>Ver en el mapa</b> muestra sus manzanas, y desde ahí puedes <b>Compartir</b> la salida por WhatsApp.',
-    canReport() && '<b>Faltan informes</b> (arriba): salidas pasadas con manzanas sin informar. Toca <b>Informar</b>.',
+    canReport() && '<b>Faltan informes</b> (arriba): salidas pasadas con manzanas sin informar. Toca <b>Informar</b>.' + (isAdmin() ? ' <b>📤 Recordar</b> le manda al conductor un mensaje con lo que le falta.' : ''),
     'Abajo están los próximos días; el programa completo está en <b>Calendario</b>.']],
   calendario: ['Calendario', () => ['<b>Lista</b> muestra las salidas día por día; <b>Mes</b>, el mes en cuadros. Con ‹ › cambias de mes.',
     isAdmin() ? 'Toca una salida para cambiarla. <b>+ Salida</b> (o <b>+ salida</b> junto a un día) agrega una.' : 'Toca una salida para ver dónde es, sus manzanas y cómo llegar.',
     isAdmin() && '<b>Semana modelo</b> es la semana normal; con <b>+ N de la semana modelo</b> se llena el mes. Después cambia los conductores o agrega las especiales.',
+    isAdmin() && 'El <b>conductor</b> se elige de la lista (Más → Conductores), así ve sus salidas e informes. <b>Otro…</b> es para alguien que no está en la lista.',
     isAdmin() && '<b>Sin territorio</b>: no se le asignan manzanas (predicación pública, por carta…). <b>Arreglo especial</b> sale con ** en el programa.',
     isAdmin() && 'Los cambios esperan en la barra naranja: <b>Guardar todo</b> los guarda y <b>Descartar</b> los deshace.',
     isAdmin() && '🖨 imprime el programa (o lo guarda como PDF) y 📤 hace una imagen para WhatsApp.',
@@ -3002,9 +3095,10 @@ const AYUDA = {
   lugares: ['Lugares', () => ['Cada lugar de salida con la próxima salida de ahí (tócala para abrirla) y las siguientes.',
     '<b>Cómo llegar</b> abre Google Maps; <b>Compartir</b> manda la ubicación y las próximas salidas; <b>Ver en el mapa</b> lo muestra.',
     '<b>🖨 Mapa para imprimir</b>: el mapa de los territorios con la letra de cada lugar y abajo qué es cada letra. Se imprime, se guarda como PDF o se manda como imagen.',
-    isAdmin() && '<b>+ Agregar lugar</b> y luego toca el mapa donde está. <b>Editar</b> cambia el nombre, y en el mapa puedes arrastrarlo.',
+    isAdmin() && '<b>+ Agregar lugar</b> y luego toca el mapa donde está, o pega su ubicación: el enlace de Google Maps (Compartir → Copiar enlace) o las coordenadas. <b>Editar</b> cambia el nombre, y en el mapa puedes arrastrarlo.',
     isAdmin() && '<b>Archivar</b> un lugar que ya no se usa: deja de salir en el mapa y al planificar. <b>Archivados</b> (abajo) los restaura.']],
   lugar: ['Lugar de salida', () => ['Pon una letra corta (A, B…) y el nombre.', 'Para moverlo, arrástralo en el mapa (uno nuevo: toca otro lugar del mapa).',
+    'O pega su ubicación y toca <b>Usar</b>: el enlace de Google Maps (en Maps: toca el lugar → Compartir → Copiar enlace) o las coordenadas (mantén presionado el punto en Google Maps y cópialas).',
     'Al terminar, toca <b>Listo</b> y después <b>Guardar todo</b> en la barra naranja.']],
   mapa: ['Mapa', () => ['Toca una manzana para ver cuándo se trabajó, su historial y las casas que no se visitan.', 'Toca el número grande de un territorio para acercarte.',
     '◎ muestra dónde estás; <b>Calles / Satélite</b> cambia el fondo.', 'Los colores de hoy: verde = completo, naranja = parcial, rojo = no se hizo.']],
@@ -3424,6 +3518,14 @@ const ACT = {
     if (confirm('¿Borrar a ' + c.nombre + '? Su enlace dejará de servir. (Sus informes se conservan.)')) await removeRows('Conductores', [c.id]);
   },
   appshare() { openAppShare(); },
+  recordar(el) { openRecordar(el.dataset.v); },
+  recshare() { navigator.share({ text: $('#rec-texto').value }).catch(() => {}); },
+  recwa() { window.open('https://wa.me/?text=' + encodeURIComponent($('#rec-texto').value), '_blank', 'noopener'); },
+  async reccopiar() {
+    const el = $('#rec-texto');
+    try { await navigator.clipboard.writeText(el.value); } catch (e) { el.select(); document.execCommand('copy'); }
+    toast('Texto copiado.');
+  },
   guia() { abrirTour(); },
   sharetext() { navigator.share({ text: shareData.text }).catch(() => {}); },
   async copylink() {
@@ -3467,7 +3569,7 @@ const ACT = {
     const dup = DB.Puntos.find(x => x.letra.toUpperCase() === letra && x.id !== editSel.id);
     if (dup) return toast('Ya hay un punto con la letra ' + letra + (archivados().has(dup.id) ? ' (archivado)' : '') + '. Usa otra letra.');
     const old = DB.Puntos.find(x => x.id === editSel.id);
-    const p = old ? { ...old, letra, nombre } : { id: uid(), letra, nombre, lat: editSel.lat, lng: editSel.lng };
+    const p = old ? { ...old, letra, nombre, ...(editSel.lat ? { lat: editSel.lat, lng: editSel.lng } : {}) } : { id: uid(), letra, nombre, lat: editSel.lat, lng: editSel.lng };
     editSel = null;
     stage('Puntos', p);
   },
@@ -3477,6 +3579,30 @@ const ACT = {
   },
   ptarch(el) { const on = !archivados().has(el.dataset.id); editSel = null; setArchivado(el.dataset.id, on); },
   ptcancel() { editSel = null; addingPunto = false; renderAll(); },
+  async ptubic() {
+    const texto = $('#pt-ubic').value.trim();
+    if (!texto) return toast('Pega un enlace de Google Maps o unas coordenadas.');
+    let u = leerUbicacion(texto);
+    if (!u && ENLACE_CORTO.test(texto)) { // a short link: the Sheet's script follows it (a page can't)
+      try {
+        const r = await busy(api('enlace', texto), 'Abriendo el enlace…', { quiet: true });
+        u = leerUbicacion(r.url) || (r.lat != null ? { lat: r.lat, lng: r.lng, nombre: nombreLugar(r.url) } : null);
+      } catch (e) {
+        return toast(e.offline ? e.message : /desconocida/.test(e.message) ? 'Para usar enlaces cortos hay que actualizar el Apps Script de la hoja. Mientras tanto, pega las coordenadas.' : e.message, 8000);
+      }
+    }
+    if (!u) return toast('No encontré la ubicación ahí. Prueba con las coordenadas (ej.: -17.79154, -63.13717).', 6000);
+    const km = L.latLng(PLAZA).distanceTo([u.lat, u.lng]) / 1000;
+    if (km > 60 && !confirm('Esa ubicación queda a ' + Math.round(km) + ' km del territorio. ¿Usarla igual?')) return;
+    const l = $('#pt-letra'), nm = $('#pt-nombre');
+    editSel = { ...(editSel || {}), kind: 'punto', id: (editSel && editSel.id) || '', lat: u.lat.toFixed(6), lng: u.lng.toFixed(6),
+      letra: l ? l.value : '', nombre: nm && nm.value.trim() ? nm.value : u.nombre };
+    addingPunto = false;
+    renderAll();
+    map.setView([u.lat, u.lng], Math.max(map.getZoom(), 17));
+    toast('Ubicación puesta: revísala en el mapa y toca Listo.');
+  },
+  condlista(el) { if (el.dataset.v === 'pcond') { plan._otro = false; renderAll(); } else { prog.edit._otro = false; enSuLugar(true); } },
   guiaadj() { setGuideAdjust(!guideAdjust); renderAll(); },
   guiasave() { stage('Config', { id: 'guia', valor: JSON.stringify(guide.corners()) }); },
   guiaoff() { setGuideAdjust(false); map.removeLayer(guide); guide = null; renderAll(); },
@@ -3514,7 +3640,10 @@ const INPUT = {
   pg(el) { prog.edit[el.dataset.k] = el.value; },
   pgc(el) { prog.edit[el.dataset.k] = el.checked ? 'si' : ''; },
   sugn(el) { sugN = Math.max(1, Math.min(30, +el.value || 4)); store.set('predi-sugn', sugN); if (plan.sug) aplicarSugerencia(false); renderAll(); },
-  'p-conductor'(el) { plan.conductor = el.value; },
+  pcond(el) { if (el.value === '__otro') { plan.conductor = ''; plan._otro = true; renderAll(); } else plan.conductor = el.value; },
+  pcondtxt(el) { plan.conductor = el.value; },
+  pgcond(el) { if (el.value === '__otro') { prog.edit.conductor = ''; prog.edit._otro = true; enSuLugar(true); } else prog.edit.conductor = el.value; },
+  pgcondtxt(el) { prog.edit.conductor = el.value; },
   'p-notas'(el) { plan.notas = el.value; },
   'p-nb'(el) { plan.notasB[el.dataset.id] = el.value; plan.sug = null; },
   tcolor(el) { stage('Territorios', { id: el.dataset.t, color: el.value, notas: '' }); },
@@ -3532,7 +3661,7 @@ const INPUT = {
   guiaop(el) { guide.setOpacity(+el.value); },
 };
 // "change" for controls that re-render or save; "input" for live text so typing never loses focus.
-const ON_CHANGE = ['inffecha', 'tcolor', 'guiafile', 'p-fecha', 'p-hora', 'p-punto', 's13anio', 'nvfile', 'arname', 'arterr', 'sugn', 'sugnunca', 'sugunterr', 'pgc'];
+const ON_CHANGE = ['pcond', 'pgcond', 'inffecha', 'tcolor', 'guiafile', 'p-fecha', 'p-hora', 'p-punto', 's13anio', 'nvfile', 'arname', 'arterr', 'sugn', 'sugnunca', 'sugunterr', 'pgc'];
 
 function onAct(e) {
   const el = e.target.closest('[data-act]');
