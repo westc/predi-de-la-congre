@@ -1,5 +1,5 @@
 /**
- * Territorios – Congregación La Villa (Villa 1ro de Mayo, Santa Cruz)
+ * Territorios – a territory app for a congregation (first made for La Villa, Villa 1ro de Mayo, Santa Cruz)
  *
  * The app itself is a static page on GitHub Pages (SITE_URL). This script is its data service:
  * the page sends POST requests here (doPost) and gets JSON back.
@@ -28,13 +28,13 @@
 const TABLES = {
   Bloques:     ['id', 'territorio', 'bloque', 'coords', 'notas'],
   Territorios: ['id', 'color', 'notas'],
-  Puntos:      ['id', 'letra', 'nombre', 'lat', 'lng'],
+  Puntos:      ['id', 'letra', 'nombre', 'lat', 'lng', 'foto'], // foto: like NoVisitar's (pieces in Fotos, see fotoPunto)
   Salidas:     ['id', 'fecha', 'bloques', 'punto', 'conductor', 'notas', 'notasBloques', 'hora', 'grupo', 'sinTerritorio', 'especial'],
   Informes:    ['id', 'fecha', 'salida', 'bloque', 'estado', 'porcentaje', 'nota', 'quien', 'creado', 'editadoPor', 'editado'],
   Config:      ['id', 'valor'],
   Conductores: ['id', 'nombre', 'clave', 'activo', 'creado'], // clave = the secret in the conductor's link
   NoVisitar:   ['id', 'bloque', 'nota', 'foto', 'quien', 'creado'], // houses that asked not to be visited
-  Fotos:       ['id', 'casa', 'datos'], // their pictures, in pieces (see casa)
+  Fotos:       ['id', 'casa', 'datos'], // pictures of houses and of meeting points, in pieces (see casa, fotoPunto); casa = their id
   Cambios:     ['v', 'tabla', 'id', 'op', 'datos'], // the change log (hidden sheet): op = put | del | reset
 };
 
@@ -54,9 +54,9 @@ const SITE_URL = 'https://westc.github.io/predi-de-la-congre/';
 
 // What the page may call through doPost.
 // Each one gets who_() as its first argument.
-const API = { getAll, cambios, save, remove, commit, informes, casa, borrarCasa, foto, enlace };
+const API = { getAll, cambios, save, remove, commit, informes, casa, borrarCasa, foto, enlace, fotoPunto };
 // The ones that change data: they answer with the data as it is afterwards.
-const WRITES = ['save', 'remove', 'commit', 'informes', 'casa', 'borrarCasa'];
+const WRITES = ['save', 'remove', 'commit', 'informes', 'casa', 'borrarCasa', 'fotoPunto'];
 
 /**
  * The page's requests: body = JSON {fn, args, auth: {pin, conductor}, v}.
@@ -87,7 +87,7 @@ function doGet(e) {
     '<p>La app de territorios ahora está aquí:</p>' +
     (link ? '<p><a href="' + link + '" target="_blank" style="display:inline-block;background:#1f4fbf;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600">Abrir la app</a></p>'
       : '<p>Pídele el código QR al encargado del territorio.</p>') + '</div>';
-  return HtmlService.createHtmlOutput(html).setTitle('Territorios La Villa')
+  return HtmlService.createHtmlOutput(html).setTitle('Territorios')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
@@ -457,7 +457,10 @@ function commit(who, changes) {
   Object.keys(changes.save || {}).concat(Object.keys(changes.remove || {})).forEach(t => checkTable_(who, t));
   return locked_(() => {
     for (const table in changes.save || {}) write_(table, changes.save[table], true);
-    for (const table in changes.remove || {}) delete_(table, changes.remove[table]);
+    for (const table in changes.remove || {}) {
+      if (table === 'Puntos') rows_('Puntos').filter(p => changes.remove.Puntos.indexOf(p.id) >= 0).forEach(p => delete_('Fotos', fotoIds_(p))); // their pictures too
+      delete_(table, changes.remove[table]);
+    }
   });
 }
 
@@ -498,29 +501,46 @@ function informes(who, rows, borrar) {
  * foto: a JPEG data: URL, '' for no picture, or null to keep the one it has.
  * A conductor sending a house that is already there (a retry) changes nothing.
  */
+/** Checks a picture sent by the page: a JPEG data: URL the phone already shrank. */
+function fotoValida_(foto) {
+  if (foto && !(/^data:image\/jpeg;base64,[\w+\/=]+$/.test(foto) && foto.length <= 200000)) throw new Error('La foto no es válida o es demasiado grande.');
+}
+/** Replaces the picture with the id "dueno" (a house or a meeting point): returns the new stamp for its foto column. */
+function ponerFoto_(dueno, foto) {
+  delete_('Fotos', fotoIds_(dueno));
+  const pieces = [];
+  for (let i = 0; i < foto.length; i += PIECE) pieces.push({ id: dueno.id + '-' + pieces.length, casa: dueno.id, datos: foto.slice(i, i + PIECE) });
+  if (pieces.length) write_('Fotos', pieces, true);
+  // How many pieces, plus a stamp so phones know when a picture was replaced.
+  return pieces.length ? pieces.length + '.' + Date.now().toString(36) : '';
+}
+
 function casa(who, row, foto) {
   if (who.role === 'publicador') {
     throw new Error(who.aviso || 'Solo los conductores pueden registrar casas. Pide tu enlace al encargado del territorio.');
   }
   if (!String(row.id || '') || !String(row.bloque || '')) throw new Error('Falta la manzana de la casa.');
   if (!String(row.nota || '').trim()) throw new Error('Falta la dirección o descripción de la casa.');
-  if (foto && !(/^data:image\/jpeg;base64,[\w+\/=]+$/.test(foto) && foto.length <= 200000)) {
-    throw new Error('La foto no es válida o es demasiado grande.');
-  }
+  fotoValida_(foto);
   return locked_(() => {
     const old = rows_('NoVisitar').find(r => r.id === String(row.id));
     if (old && !esAdmin_(who)) return;
     if (who.role === 'conductor') row.quien = who.nombre; // the name comes from the link, not from the phone
     row.foto = old ? old.foto : '';
-    if (foto != null) {
-      if (old) delete_('Fotos', fotoIds_(old));
-      const pieces = [];
-      for (let i = 0; i < foto.length; i += PIECE) pieces.push({ id: row.id + '-' + pieces.length, casa: row.id, datos: foto.slice(i, i + PIECE) });
-      if (pieces.length) write_('Fotos', pieces, true);
-      // How many pieces, plus a stamp so phones know when a picture was replaced.
-      row.foto = pieces.length ? pieces.length + '.' + Date.now().toString(36) : '';
-    }
+    if (foto != null) row.foto = ponerFoto_(old || { id: row.id, foto: '' }, foto);
     write_('NoVisitar', [row], true);
+  });
+}
+
+/** A meeting point's picture (optional; '' takes it away). The point must already be saved (Guardar todo sends it first). */
+function fotoPunto(who, id, foto) {
+  needAdmin_(who);
+  fotoValida_(foto);
+  return locked_(() => {
+    const p = rows_('Puntos').find(r => r.id === String(id));
+    if (!p) throw new Error('Ese lugar de salida no está guardado.');
+    p.foto = ponerFoto_(p, String(foto || ''));
+    write_('Puntos', [p], true);
   });
 }
 
@@ -533,7 +553,7 @@ function borrarCasa(who, id) {
   });
 }
 
-/** One house's picture as a data: URL ('' if it has none). */
+/** One house's (or meeting point's) picture as a data: URL ('' if it has none). */
 function foto(who, id) {
   const sh = sheet_('Fotos'), n = sh.getLastRow();
   if (n < 2) return '';

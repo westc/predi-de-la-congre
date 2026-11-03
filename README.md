@@ -1,6 +1,6 @@
-# Territorios · La Villa
+# Territorios
 
-A free territory app for Congregación La Villa (Villa 1ro de Mayo, Santa Cruz).
+A free territory app for a congregation, first made for Congregación La Villa (Villa 1ro de Mayo, Santa Cruz). The congregation's name isn't in the code: it's set in the app (**Más → Congregación**) and saved in its Sheet.
 
 - **The app** is a static page on GitHub Pages: https://westc.github.io/predi-de-la-congre/
 - **The data** stays in a Google Sheet. The Sheet's Apps Script answers the app's requests.
@@ -42,6 +42,7 @@ The Sheet enforces these rules, not only the page: without a conductor link or a
   - **🖨 Mapa para imprimir:** a picture of the territories (their colors, territory and manzana numbers) with each meeting point's letter on the map and, below, what each letter is. Choose the area (if there are several) and **Calles** or **Satélite**; then **Imprimir o PDF** (print, or save as PDF from the print window), **Compartir…** or **Descargar imagen**.
   - Places too close together for their letters (or on the same spot) don't cover each other: on the map and on the printed map, each one keeps a dot on its exact spot and its letter moves out into a ring around the group, with a line back to the dot. On the app's map this is worked out again at each zoom, so the letters go back to their spots once there's room.
   - **A place's location from Google Maps:** when adding or editing a place, paste a Google Maps link or coordinates and tap **Usar**. It reads the link the Maps app shares (`maps.app.goo.gl/…`, followed by the Sheet's script, since a page can't), long links (it takes the place's own spot, and its name if the place has none yet), coordinates (`-17.79154, -63.13717`) or degrees (`17°47'29.6"S 63°08'13.8"W`). A location far from the territory asks first. Moving a saved place this way shows a red **?** until **Listo**.
+  - **A place's picture (optional):** in its form, **Foto** takes or chooses one (shrunk on the phone to at most 120 KB); **Quitar la foto** takes it away. It waits with the other changes for **Guardar todo** (Descartar drops it). Everyone then sees **📷 Foto** in Lugares, in the map's bubble for that place, and next to the meeting point of its salidas. Pictures are kept in the *Fotos* sheet like the houses', and removed with their place.
   - The superintendente and the siervo add places here (**+ Agregar lugar**, then tap the map), and **Editar** one to rename it, move it (drag it on the map), **Archivar** it or remove it. An archived place leaves the map and the Planificar list, but salidas that already use it keep its name and Cómo llegar; **Archivados** lists them to **Restaurar**. Saved in the Config sheet.
 - **History (everyone):** tapping a manzana on the map offers **📜 Historial** and **📜 Territorio N**:
   - **Manzana:** when it was last completed, partial work since, upcoming salidas with their notes, houses not to visit, and every informe by year, with who reported or changed it.
@@ -72,7 +73,7 @@ The Sheet enforces these rules, not only the page: without a conductor link or a
   - Nothing new is entered for this: it all comes from the salidas and informes.
   - **Editar mapa:** label and reshape manzanas (and the territories' colors), the **Áreas**, and the **Imagen guía** (the paper map laid over the streets, only on that device).
   - **Áreas:** for parts of the territory that are apart (e.g. an isolated territory in another neighborhood). The main area starts as "Territorios"; add others and assign territories to them. With two or more areas that have manzanas, the map gets a switch to jump between them (for everyone), and the app opens on the area last chosen. Saved in the Config sheet, so no Apps Script change was needed.
-- **Más (everyone):** who you are, **Entrar con PIN** / **Salir**, the sections that aren't in the phone's tab bar, **Registrar casa que no se visita**, **Conductores** (superintendente), **Compartir la app**, how to install it, the version, and **Tamaño de letra**: **A− / A+** chooses Pequeña, Normal (default), Grande or Muy grande; each phone remembers it. It's needed because an iPhone's own text size doesn't reach web apps, and an app added to the home screen has no zoom button. The printed S-13 keeps its size.
+- **Más (everyone):** who you are, **Congregación** (superintendente, siervo: its name, used on the printed program, the printed map and the messages the app writes; left out until it's set), **Entrar con PIN** / **Salir**, the sections that aren't in the phone's tab bar, **Registrar casa que no se visita**, **Conductores** (superintendente), **Compartir la app**, how to install it, the version, and **Tamaño de letra**: **A− / A+** chooses Pequeña, Normal (default), Grande or Muy grande; each phone remembers it. It's needed because an iPhone's own text size doesn't reach web apps, and an app added to the home screen has no zoom button. The printed S-13 keeps its size.
 - **Installable:**
   - Android Chrome: **Más → 📲 Instalar la app**.
   - On iPhone: Share → **Agregar a inicio** (Add to Home Screen).
@@ -90,7 +91,7 @@ The Sheet enforces these rules, not only the page: without a conductor link or a
 |---|---|---|
 | `index.html` | GitHub Pages | The whole app |
 | `manzanas.js` | GitHub Pages | The 106 manzanas pre-outlined from OpenStreetMap streets |
-| `manifest.webmanifest`, `icons/` | GitHub Pages | What makes it installable |
+| `manifest.webmanifest`, `icons/` | GitHub Pages | What makes it installable; `icons/og-image.jpg` is the picture shown when a link to the app is shared (WhatsApp, Telegram), set in the `og:` tags at the top of `index.html` |
 | `sw.js` | GitHub Pages | Offline copy of the app and map tiles |
 | `apps-script/Code.gs` | Apps Script | Reads and writes the Sheet, checks the PIN, adds the QR menu. Photos of houses are kept in the *Fotos* sheet in pieces, since a cell holds at most 50,000 characters |
 | `apps-script/Qr.html` | Apps Script | The QR code window |

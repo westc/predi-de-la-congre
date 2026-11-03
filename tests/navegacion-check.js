@@ -19,7 +19,7 @@ const tapBlock = (page, i) => page.evaluate(i => { const b = BL[i]; gBloques.get
   await seed(ph);
   let s = await st(ph); console.log('phone start', s);
   assert.deepEqual(s.tabs, ['hoy', 'calendario', 'lugares', 'mapa', 'mas']);
-  assert.equal(s.modo, 'none'); assert(!s.back, 'no ‹ at the top of a section'); assert.equal(s.title, 'Territorios · La Villa');
+  assert.equal(s.modo, 'none'); assert(!s.back, 'no ‹ at the top of a section'); assert.equal(s.title, 'Territorios');
   await tap(ph, '#nav [data-tab=mapa]'); s = await st(ph);
   assert.equal(s.modo, 'full'); assert.equal(s.panelH, 0); assert(s.mapH > s.alto * 0.6, 'Mapa fills the screen: ' + s.mapH);
   await tap(ph, '#nav [data-tab=hoy]');

@@ -123,4 +123,18 @@ assert(!post('enlace', ['https://maps.app.goo.gl/mal'], SUP).ok, 'only to Google
 const n = pedidos.length;
 assert(!post('enlace', ['https://ejemplo.com/x'], SUP).ok, 'only Google short links'); assert.equal(pedidos.length, n, 'never fetched');
 assert(!post('enlace', ['https://maps.app.goo.gl/abc'], {}).ok, 'not for publicadores');
+// ---- a meeting point's picture: pieces in Fotos, its stamp in Puntos.foto; gone with the point
+const fotoGrande = 'data:image/jpeg;base64,' + 'A'.repeat(90000);
+assert(post('commit', [{ save: { Puntos: [{ id: 'pf', letra: 'F', nombre: 'Con foto', lat: '-17.79', lng: '-63.13', foto: '' }] }, remove: {} }], TER).ok);
+assert(!post('fotoPunto', ['pf', fotoGrande], {}).ok, 'not for publicadores');
+assert(!post('fotoPunto', ['nada', fotoGrande], TER).ok, 'only saved points');
+assert(!post('fotoPunto', ['pf', 'data:text/html,hola'], TER).ok, 'only JPEG');
+r = post('fotoPunto', ['pf', fotoGrande], TER); assert(r.ok, r.error);
+const pf = T.rows_('Puntos').find(p => p.id === 'pf'); assert(/^3\./.test(pf.foto), 'three pieces: ' + pf.foto);
+assert.equal(post('foto', ['pf'], {}).data, fotoGrande, 'everyone can see it');
+r = post('fotoPunto', ['pf', ''], SUP); assert(r.ok);
+assert.equal(T.rows_('Puntos').find(p => p.id === 'pf').foto, ''); assert.equal(post('foto', ['pf'], {}).data, '');
+post('fotoPunto', ['pf', fotoGrande], SUP);
+assert(post('commit', [{ save: {}, remove: { Puntos: ['pf'] } }], SUP).ok);
+assert.equal(post('foto', ['pf'], {}).data, '', 'its picture goes with it');
 console.log('Apps Script v2 tests passed');

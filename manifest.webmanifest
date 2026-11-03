@@ -1,7 +1,7 @@
 {
-  "name": "Territorios La Villa",
+  "name": "Territorios",
   "short_name": "Territorios",
-  "description": "Mapa de territorios, salidas e informes de la congregación La Villa.",
+  "description": "Mapa de territorios, salidas e informes de la congregación.",
   "id": "./",
   "start_url": "./",
   "scope": "./",

@@ -3,7 +3,21 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Territorios La Villa</title>
+<title>Territorios</title>
+<meta name="description" content="La salida de hoy, el programa y los lugares de salida de la congregación.">
+<!-- The preview when a link to the app is shared (WhatsApp, Telegram…): they read these tags, they don't run the app. -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Territorios">
+<meta property="og:title" content="Territorios">
+<meta property="og:description" content="La salida de hoy, el programa y los lugares de salida de la congregación.">
+<meta property="og:url" content="https://westc.github.io/predi-de-la-congre/">
+<meta property="og:image" content="https://westc.github.io/predi-de-la-congre/icons/og-image.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Territorios: la salida de hoy, el programa y los lugares de salida">
+<meta property="og:locale" content="es_BO">
+<meta name="twitter:card" content="summary_large_image">
 <script>
 // Which congregation's Sheet this app talks to: ?api=ID from the QR code (the Apps Script deployment id).
 // A conductor's personal link also has &c=KEY. Both are remembered, and kept in the address so
@@ -318,7 +332,7 @@
 <body class="m-none">
 <header id="top">
   <button class="tb" id="back" hidden title="Atrás" aria-label="Atrás"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
-  <h1 id="title">Territorios · La Villa</h1>
+  <h1 id="title">Territorios</h1>
   <a id="openfull" href="" target="_blank" rel="noopener" title="Abrir en una pestaña aparte">Abrir aparte ↗</a>
   <button class="tb" id="help" title="Ayuda de esta pantalla" aria-label="Ayuda"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.6"/><circle cx="12" cy="17.2" r=".6" fill="currentColor"/></svg></button>
   <button class="tb" id="refresh" title="Traer los últimos datos de la hoja" aria-label="Actualizar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v5h-5"/></svg></button>
@@ -338,7 +352,7 @@
 <div id="share"><div class="box"></div></div>
 <div id="s13"></div>
 <div id="setup"><div class="box">
-  <h2>Territorios · La Villa</h2>
+  <h2>Territorios</h2>
   <p>Para usar la app, escanea con la cámara del celular el <b>código QR</b> que te dio el encargado del territorio.</p>
   <label>O pega aquí el enlace que te pasaron</label><input type="text" id="setup-link" placeholder="https://westc.github.io/predi-de-la-congre/?api=…">
   <div class="actions"><button class="b primary" id="setup-go">Conectar</button></div>
@@ -349,7 +363,7 @@
 <script src="manzanas.js"></script>
 <script>
 // ---------- settings ----------
-const VERSION = '40 · 03/11/2026'; // shown in Más; bump when changing this file
+const VERSION = '42 · 03/11/2026'; // shown in Más; bump when changing this file
 const PALETTE = ['#fff27a','#f7a8c8','#f9b26b','#ffd6b3','#b9dd8f','#80e0e8','#bba0ec','#a9c8f0','#d0d0d0','#f3df5a','#eaa3f2','#a3dcbc'];
 const PLAZA = [-17.794426, -63.134013];
 // Rough placement of the paper map over the streets: top-left, top-right, bottom-left corners.
@@ -440,7 +454,7 @@ const Mock = (() => {
     if (t === 'Fotos') throw new Error('Tabla protegida: ' + t);
     if (t === 'Conductores' && w.role !== 'admin') throw new Error('Solo el superintendente de servicio puede cambiar los conductores.');
   };
-  const WRITES = ['save', 'remove', 'commit', 'informes', 'casa', 'borrarCasa'];
+  const WRITES = ['save', 'remove', 'commit', 'informes', 'casa', 'borrarCasa', 'fotoPunto'];
   const fns = {
     getAll,
     cambios,
@@ -486,6 +500,14 @@ const Mock = (() => {
       del('Informes', borrar || []);
     },
     borrarCasa(w, id) { needAdmin(w); del('Fotos', [id]); del('NoVisitar', [id]); },
+    fotoPunto(w, id, foto) {
+      needAdmin(w);
+      const p = load().Puntos.find(r => r.id === id);
+      if (!p) throw new Error('Ese lugar de salida no está guardado.');
+      del('Fotos', [id]);
+      if (foto) put('Fotos', [{ id, casa: id, datos: foto }]);
+      put('Puntos', [{ ...p, foto: foto ? '1.' + Date.now().toString(36) : '' }]);
+    },
     foto(w, id) { const f = load().Fotos.find(r => r.casa === id); return f ? f.datos : ''; },
     // the demo can't open Google's short links: any of them leads to the plaza, like Code.gs's enlace would
     enlace(w, url) {
@@ -801,8 +823,11 @@ function heatColors() {
 /** Service year (Sept → Aug) a date belongs to: 2026-10-27 → 2027. */
 function anioServicio(s) { const y = +s.slice(0, 4); return +s.slice(5, 7) >= 9 ? y + 1 : y; }
 
+// Meeting points' pictures chosen but not sent yet: { punto id: data: URL, or '' to take it away }. They go with
+// Guardar todo (after the points themselves) and Descartar drops them, like the rest of the edits.
+let PEND_FOTOS = {};
 function pendingCount() {
-  let n = 0;
+  let n = Object.keys(PEND_FOTOS).filter(id => !(PEND.save.Puntos || {})[id]).length;
   Object.values(PEND.save).forEach(rows => { n += Object.keys(rows).length; });
   Object.values(PEND.remove).forEach(ids => { n += ids.length; });
   return n;
@@ -824,9 +849,14 @@ async function commitAll() {
     if (Object.values(PEND.save.Salidas || {}).some(r => r._prog)) { try { await sincronizar(); } catch (e) { /* save anyway */ } }
     const changes = { save: {}, remove: PEND.remove };
     Object.keys(PEND.save).forEach(t => { changes.save[t] = Object.values(PEND.save[t]).map(r => paraGuardar(t, r)); });
+    const quitados = PEND.remove.Puntos || [];
     const data = await api('commit', changes);
     PEND = { save: {}, remove: {} };
     setDB(data);
+    for (const id of Object.keys(PEND_FOTOS)) {
+      if (quitados.indexOf(id) < 0) setDB(await api('fotoPunto', id, PEND_FOTOS[id]));
+      delete PEND_FOTOS[id];
+    }
   })(), 'Guardando ' + n + (n === 1 ? ' cambio…' : ' cambios…'));
   toast('Cambios guardados.');
 }
@@ -852,7 +882,7 @@ function discardAll() {
   const n = pendingCount();
   if (!confirm('¿Descartar ' + n + (n === 1 ? ' cambio' : ' cambios') + ' sin guardar?')) return;
   endShape();
-  PEND = { save: {}, remove: {} };
+  PEND = { save: {}, remove: {} }; PEND_FOTOS = {};
   editSel = null; lastSaved = null; prog.edit = null;
   rebuild();
 }
@@ -895,7 +925,8 @@ function nextSalidaFor(id) {
 // its manzanas in Planificar. "Semana modelo" (Config) is the usual week, used to fill a month.
 const DIAS_LARGOS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 const MESES_LARGOS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
-const CONGRE = 'La Villa';
+/** The congregation's name (Más → Congregación, Config "congregacion"), for the program, the printed map and the shared texts. */
+const congre = () => String(CONFIG.congregacion || '').trim();
 let prog = { mes: ymd(new Date()).slice(0, 7), edit: null };
 function sinTerr(s) { return s.sinTerritorio === 'si'; }
 /** "Grupo 1 - Flia. Vargas - Predicación Pública": group, place and detail. */
@@ -1058,6 +1089,7 @@ function openProgramaElegir() {
     '<div class="seg seg-wrap">' + op('semana', 'Esta semana') + op('proxima', 'Próxima semana') + op('mes', MESES_LARGOS[+prog.mes.slice(5, 7) - 1][0].toUpperCase() + MESES_LARGOS[+prog.mes.slice(5, 7) - 1].slice(1)) + op('fechas', 'Fechas') + '</div>' +
     (progImp.rango === 'fechas' ? '<div class="grid2"><div><label>Desde</label><input type="date" data-pi="desde" value="' + progImp.desde + '"></div>' +
       '<div><label>Hasta</label><input type="date" data-pi="hasta" value="' + progImp.hasta + '"></div></div>' : '') +
+    (!congre() && isAdmin() ? '<p class="muted warn">Para que el programa diga la congregación, ponla en Más → Congregación.</p>' : '') +
     '<p><b>' + esc(rangoNombre(desde, hasta)) + '</b> · ' + (n ? n + (n === 1 ? ' salida' : ' salidas') : '<span class="warn">no hay salidas</span>') + '</p>' +
     '<div class="actions"><button class="b primary" data-act="pgimprimir"' + (n ? '' : ' disabled') + '>🖨 Imprimir o PDF</button>' +
     '<button class="b" data-act="pgimagen"' + (n ? '' : ' disabled') + '>📤 Imagen para WhatsApp</button></div>';
@@ -1066,7 +1098,7 @@ function openProgramaElegir() {
 
 function programaHtml(desde, hasta) {
   const list = salidasEntre(desde, hasta), unMes = desde.slice(0, 7) === hasta.slice(0, 7);
-  return '<section class="pg-page"><div class="pg-sup">PROGRAMA PARA LA PREDICACIÓN - CONGRE. "' + CONGRE.toUpperCase() + '"</div>' +
+  return '<section class="pg-page"><div class="pg-sup">PROGRAMA PARA LA PREDICACIÓN' + (congre() ? ' - CONGRE. "' + esc(congre().toUpperCase()) + '"' : '') + '</div>' +
     '<h1>' + esc(tituloPrograma(desde, hasta)) + '</h1>' +
     '<table class="pg-t"><thead><tr><th>Fecha</th><th>Día</th><th>Hora</th><th></th><th>Conductor</th></tr></thead><tbody>' +
     list.map(s => {
@@ -1089,7 +1121,7 @@ async function programaImagen(desde, hasta) {
   cv.width = W; cv.height = TOP + RH * (list.length + 1) + (esp ? RH : 0) + PAD;
   cx.fillStyle = '#fff'; cx.fillRect(0, 0, W, cv.height);
   cx.textAlign = 'center'; cx.textBaseline = 'middle';
-  cx.fillStyle = '#999'; cx.font = 'bold 24px Arial,sans-serif'; cx.fillText('PROGRAMA PARA LA PREDICACIÓN - CONGRE. "' + CONGRE.toUpperCase() + '"', W / 2, 40);
+  cx.fillStyle = '#999'; cx.font = 'bold 24px Arial,sans-serif'; cx.fillText('PROGRAMA PARA LA PREDICACIÓN' + (congre() ? ' - CONGRE. "' + congre().toUpperCase() + '"' : ''), W / 2, 40);
   const titulo = tituloPrograma(desde, hasta);
   cx.fillStyle = '#000'; cx.font = 'bold ' + (titulo.length > 34 ? 28 : 34) + 'px Arial,sans-serif'; cx.fillText(titulo, W / 2, 82);
   const fit = (text, w) => { let t = String(text); while (t.length > 3 && cx.measureText(t).width > w - 12) t = t.slice(0, -2); return t === String(text) ? t : t + '…'; };
@@ -1827,7 +1859,7 @@ function onTerritoryClick(t) {
 function placePunto(ll) {
   const l = $('#pt-letra'), n = $('#pt-nombre');
   addingPunto = false;
-  editSel = { kind: 'punto', id: '', lat: ll.lat.toFixed(6), lng: ll.lng.toFixed(6), letra: l ? l.value : '', nombre: n ? n.value : '' };
+  editSel = { kind: 'punto', id: '', lat: ll.lat.toFixed(6), lng: ll.lng.toFixed(6), letra: l ? l.value : '', nombre: n ? n.value : '', fotoNueva: editSel ? editSel.fotoNueva : undefined };
   renderAll();
 }
 map.on('click', e => { if (poniendoPunto()) placePunto(e.latlng); });
@@ -1952,7 +1984,7 @@ function pantalla() {
   if (tab === 'lugares' && (addingPunto || (editSel && editSel.kind === 'punto'))) return [editSel && editSel.id ? 'Editar lugar' : 'Lugar nuevo', () => { editSel = null; addingPunto = false; }];
   if (verMapa && esMovil()) return [TAB_NAMES[tab], () => { verMapa = false; }];
   const deMas = !tabsVisibles().includes(tab);
-  return [tab === 'hoy' ? 'Territorios · La Villa' : tab === 'informe' ? 'Informe de predicación' : tab === 'lugares' ? 'Lugares de salida' : TAB_NAMES[tab],
+  return [tab === 'hoy' ? 'Territorios' : tab === 'informe' ? 'Informe de predicación' : tab === 'lugares' ? 'Lugares de salida' : TAB_NAMES[tab],
     deMas ? () => { tab = 'mas'; } : null];
 }
 function atras() {
@@ -2100,6 +2132,9 @@ function masPanel() {
     (isSuper() ? item('massub', 'conductores', '👤', 'Conductores', 'Sus enlaces para enviar informes') : '') +
     item('guia', '', '💡', 'Cómo usar la app', 'Una guía corta de cada sección') +
     item('appshare', '', '📤', 'Compartir la app') +
+    (isAdmin() ? '<h3>Congregación</h3><div class="sel-row" style="padding:0"><input type="text" id="cong" value="' + esc(congre()) + '" placeholder="Nombre de la congregación">' +
+      '<button class="b" data-act="congsave">Guardar</button></div>' +
+      (congre() ? '' : '<p class="muted warn">Ponlo para que salga en el programa, el mapa para imprimir y los mensajes.</p>') : '') +
     '<h3>Tamaño de letra</h3>' + letraControl() + installHint() +
     '<p class="muted" style="margin-top:24px">Versión ' + VERSION + '</p>';
 }
@@ -2192,7 +2227,7 @@ function lugarHtml(p, prox, enPopup) {
       : '<div class="muted">Sin salidas programadas desde aquí.</div>') +
     '<div class="actions"><a class="b small primary" href="' + directionsUrl([+p.lat, +p.lng]) + '" target="_blank" rel="noopener">Cómo llegar</a>' +
     '<button class="b small" data-act="lugcompartir" data-id="' + esc(p.id) + '">Compartir</button>' +
-    (enPopup ? '' : '<button class="b small" data-act="lugver" data-id="' + esc(p.id) + '">Ver en el mapa</button>') + '</div>';
+    (enPopup ? '' : '<button class="b small" data-act="lugver" data-id="' + esc(p.id) + '">Ver en el mapa</button>') + fotoPuntoBtn(p, 'Foto') + '</div>';
 }
 function lugaresPanel() {
   const admin = isAdmin();
@@ -2244,6 +2279,33 @@ function ubicacionCampo() {
     '<details><summary>¿Cómo copio la ubicación?</summary><p class="muted">En Google Maps, toca el lugar → <b>Compartir</b> → <b>Copiar enlace</b>, y pégalo aquí. ' +
     'O mantén presionado el punto exacto en el mapa de Google y copia las coordenadas que aparecen arriba.</p></details>';
 }
+/** A meeting point's picture in its form: the one chosen now, the one waiting for Guardar todo, or the saved one. */
+function puntoFotoCampo(p) {
+  const nueva = editSel.fotoNueva !== undefined ? editSel.fotoNueva : p.id && p.id in PEND_FOTOS ? PEND_FOTOS[p.id] : undefined;
+  const tiene = nueva !== undefined ? !!nueva : !!p.foto;
+  return '<label>Foto (opcional)</label>' +
+    (nueva ? '<img class="nv-foto" src="' + nueva + '" alt="Foto del lugar">' : '') +
+    (nueva === undefined && p.foto ? '<div class="actions" style="margin-top:0"><button class="b small" data-act="ptfotover" data-id="' + esc(p.id) + '">📷 Ver la foto</button></div>' : '') +
+    (nueva === '' && p.foto ? '<p class="muted">La foto se quitará al guardar.</p>' : '') +
+    '<input type="file" accept="image/*" data-in="ptfoto">' +
+    (tiene ? '<div class="actions"><button class="b small" data-act="ptsinfoto">Quitar la foto</button></div>' : '');
+}
+/** Keeps what was typed in the place's form before it's drawn again. */
+function guardarCamposPunto() {
+  const l = $('#pt-letra'), n = $('#pt-nombre');
+  if (l) editSel.letra = l.value;
+  if (n) editSel.nombre = n.value;
+}
+/** A meeting point's picture, full size. */
+async function openFotoPunto(p) {
+  const src = await busy(getFoto(p), 'Cargando foto…');
+  shareData = null;
+  $('#share .box').innerHTML = '<div class="row-t"><span>📍 ' + esc(p.letra + ' – ' + p.nombre) + '</span><button class="b small" data-act="shareclose">✕</button></div>' +
+    '<img src="' + src + '" alt="Foto del lugar"><div class="actions"><a class="b primary" href="' + directionsUrl([+p.lat, +p.lng]) + '" target="_blank" rel="noopener">Cómo llegar</a></div>';
+  $('#share').classList.add('show');
+}
+/** "📷" next to a meeting point that has a picture. */
+function fotoPuntoBtn(p, texto) { return p && p.foto ? '<button class="b small" data-act="ptfotover" data-id="' + esc(p.id) + '">📷' + (texto ? ' ' + texto : '') + '</button>' : ''; }
 /** Lugares → adding (tap the map, or paste a location) or changing a meeting point. */
 function puntoForm() {
   if (!editSel) return '<p>Toca el mapa donde está el lugar de salida, o pega su ubicación:</p>' + ubicacionCampo() +
@@ -2254,6 +2316,7 @@ function puntoForm() {
     '<div><label>Nombre</label><input type="text" id="pt-nombre" value="' + esc(p.nombre || '') + '" placeholder="Salón del Reino"></div></div>' +
     (nueva ? '<p class="pin-note">📍 Nueva ubicación: ' + esc(editSel.lat + ', ' + editSel.lng) + ' (se guarda con Listo).</p>' : '') +
     '<p class="muted">' + (p.id ? 'Para moverlo, arrástralo en el mapa, o pega otra ubicación:' : 'Para moverlo, toca otro lugar del mapa, o pega otra ubicación:') + '</p>' + ubicacionCampo() +
+    puntoFotoCampo(p) +
     '<div class="actions"><button class="b primary" data-act="ptsave">Listo</button>' +
     (p.id ? '<button class="b" data-act="ptarch" data-id="' + esc(p.id) + '">' + (archivados().has(p.id) ? 'Restaurar' : 'Archivar') + '</button>' +
       '<button class="b danger" data-act="ptdel">Quitar</button>' : '') +
@@ -2312,7 +2375,7 @@ function salidaHecha(s) {
 function salidaPanel(s) {
   const dest = salidaDest(s), hechas = Object.values(salidaInformes(s)).filter(Boolean).length;
   return '<div class="sal-h">' + esc(when(s)) + (s.grupo ? ' · ' + esc(s.grupo) : '') + '</div>' +
-    (s.punto ? '<div class="sal-d">📍 Punto de salida: <b>' + esc(puntoName(s.punto)) + '</b></div>' : '<div class="sal-d muted">Sin punto de salida.</div>') +
+    (s.punto ? '<div class="sal-d">📍 Punto de salida: <b>' + esc(puntoName(s.punto)) + '</b> ' + fotoPuntoBtn(puntoOf(s)) + '</div>' : '<div class="sal-d muted">Sin punto de salida.</div>') +
     (s.conductor ? '<div class="sal-d">Conductor: <b>' + esc(s.conductor) + '</b></div>' : '') +
     (s.notas ? '<div class="sal-d">' + esc(s.notas) + '</div>' : '') +
     manzanasDe(s) + nvList(salidaBlocks(s)) +
@@ -2332,7 +2395,7 @@ function manzanasDe(s) {
 function salidaCard(s, withDate) {
   const dest = salidaDest(s);
   return '<div class="card sal-card"><div class="sal-h">' + esc(withDate ? when(s) : s.hora ? '🕓 ' + s.hora : 'Salida') + (s.grupo ? ' · ' + esc(s.grupo) : '') + '</div>' +
-    (s.punto ? '<div class="sal-d">📍 <b>' + esc(puntoName(s.punto)) + '</b></div>' : '') +
+    (s.punto ? '<div class="sal-d">📍 <b>' + esc(puntoName(s.punto)) + '</b> ' + fotoPuntoBtn(puntoOf(s)) + '</div>' : '') +
     (s.conductor ? '<div class="sal-d">Conductor: ' + esc(s.conductor) + '</div>' : '') +
     (s.notas ? '<div class="sal-d">' + esc(s.notas) + '</div>' : '') +
     manzanasDe(s) + nvList(salidaBlocks(s)) +
@@ -2754,7 +2817,7 @@ function openConductorShare(c) {
 function openAppShare() {
   const link = appLink();
   openLinkShare('Compartir la app', link,
-    'App de territorios de la congregación La Villa: dónde es la salida de hoy y qué manzanas se van a trabajar.\n' + link,
+    'App de territorios' + (congre() ? ' de la congregación ' + congre() : '') + ': dónde es la salida de hoy y qué manzanas se van a trabajar.\n' + link,
     'Que lo escaneen con la cámara del celular, o mándales el enlace:');
 }
 /** QR code + ways to send a link (share sheet, WhatsApp, copy). */
@@ -2893,7 +2956,7 @@ async function salidaImage(s) {
     cx.restore();
   }
   cx.textAlign = 'left'; cx.textBaseline = 'middle'; cx.font = '22px system-ui,sans-serif'; cx.fillStyle = '#6b7280';
-  cx.fillText('Territorios · La Villa', PAD, cv.height - 25);
+  cx.fillText('Territorios' + (congre() ? ' · ' + congre() : ''), PAD, cv.height - 25);
   cx.textAlign = 'right';
   cx.fillText(mapH ? (base === 'satelite' ? '© Esri, Maxar' : '© OpenStreetMap') : '', W - PAD, cv.height - 25);
   return new Promise(res => cv.toBlob(res, 'image/png'));
@@ -2952,7 +3015,7 @@ async function mapaImagen(o) {
   cx.fillStyle = '#fff'; cx.fillRect(0, 0, W, cv.height);
   const areas = areasConManzanas(), nombreArea = areas.length > 1 ? (areas.find(a => a.id === o.area) || areas[0]).nombre : '';
   cx.textBaseline = 'middle'; cx.textAlign = 'left'; cx.fillStyle = '#1d2330';
-  cx.font = 'bold 50px system-ui,sans-serif'; cx.fillText('Territorios · ' + CONGRE + (nombreArea ? ' — ' + nombreArea : ''), 40, 52);
+  cx.font = 'bold 50px system-ui,sans-serif'; cx.fillText(['Territorios' + (congre() ? ' · ' + congre() : ''), nombreArea].filter(Boolean).join(' — '), 40, 52);
   cx.font = '28px system-ui,sans-serif'; cx.fillStyle = '#6b7280'; cx.fillText(fmt(ymd(new Date())), 40, 98);
   // the map
   const c = map.project(bounds.getCenter(), z), ox = c.x - W / 2, oy = c.y - mapH / 2;
@@ -3016,7 +3079,7 @@ async function openMapaImprimir() {
   const areas = areasConManzanas();
   if (!areas.some(a => a.id === mapaImp.area)) mapaImp.area = areaActual();
   const blob = await mapaImagen(mapaImp), url = URL.createObjectURL(blob), name = 'mapa-territorios.png';
-  shareData = { blob, text: 'Mapa de los territorios y lugares de salida — ' + CONGRE, name, url };
+  shareData = { blob, text: 'Mapa de los territorios y lugares de salida' + (congre() ? ' — ' + congre() : ''), name, url };
   const canFiles = !!(navigator.canShare && navigator.canShare({ files: [new File([blob], name, { type: 'image/png' })] }));
   const seg = (k, opts) => '<span class="seg">' + opts.map(([v, l]) => '<button data-act="mapaimpop" data-k="' + k + '" data-v="' + esc(v) + '" class="' + (mapaImp[k] === v ? 'on' : '') + '">' + esc(l) + '</button>').join('') + '</span>';
   $('#share .box').innerHTML = '<div class="row-t"><span>Mapa para imprimir</span><button class="b small" data-act="shareclose">✕</button></div>' +
@@ -3146,6 +3209,7 @@ const AYUDA = {
     isAdmin() && '<b>Archivar</b> un lugar que ya no se usa: deja de salir en el mapa y al planificar. <b>Archivados</b> (abajo) los restaura.']],
   lugar: ['Lugar de salida', () => ['Pon una letra corta (A, B…) y el nombre.', 'Para moverlo, arrástralo en el mapa (uno nuevo: toca otro lugar del mapa).',
     'O pega su ubicación y toca <b>Usar</b>: el enlace de Google Maps (en Maps: toca el lugar → Compartir → Copiar enlace) o las coordenadas (mantén presionado el punto en Google Maps y cópialas).',
+    '<b>Foto</b> (opcional): una foto del lugar para que lo reconozcan. Se ve con 📷 en Lugares y en las salidas de ahí.',
     'Al terminar, toca <b>Listo</b> y después <b>Guardar todo</b> en la barra naranja.']],
   mapa: ['Mapa', () => ['Toca una manzana para ver cuándo se trabajó, su historial y las casas que no se visitan.', 'Toca el número grande de un territorio para acercarte.',
     '◎ muestra dónde estás; <b>Calles / Satélite</b> cambia el fondo.', 'Los colores de hoy: verde = completo, naranja = parcial, rojo = no se hizo.']],
@@ -3216,7 +3280,7 @@ const ACT = {
   },
   async logout() {
     if (pendingCount() && !confirm('Hay cambios sin guardar. ¿Salir igual y perderlos?')) return;
-    endShape(); PEND = { save: {}, remove: {} }; editSel = null;
+    endShape(); PEND = { save: {}, remove: {} }; PEND_FOTOS = {}; editSel = null;
     pin = ''; store.set('predi-pin-' + KEY, '');
     setWho({ role: ckey ? WHO.role : 'publicador', nombre: '' });
     delete SERVER.Conductores; // their links are only for the admin's eyes
@@ -3567,6 +3631,12 @@ const ACT = {
     if (confirm('¿Borrar a ' + c.nombre + '? Su enlace dejará de servir. (Sus informes se conservan.)')) await removeRows('Conductores', [c.id]);
   },
   appshare() { openAppShare(); },
+  async congsave() {
+    const v = $('#cong').value.trim();
+    if (v === congre()) return;
+    await saveRows('Config', [{ id: 'congregacion', valor: v }], 'Guardando…');
+    toast(v ? 'Congregación: ' + v + '.' : 'Se quitó el nombre de la congregación.');
+  },
   recordar(el) { openRecordar(el.dataset.v); },
   recshare() { navigator.share({ text: $('#rec-texto').value }).catch(() => {}); },
   recwa() { window.open('https://wa.me/?text=' + encodeURIComponent($('#rec-texto').value), '_blank', 'noopener'); },
@@ -3618,7 +3688,8 @@ const ACT = {
     const dup = DB.Puntos.find(x => x.letra.toUpperCase() === letra && x.id !== editSel.id);
     if (dup) return toast('Ya hay un punto con la letra ' + letra + (archivados().has(dup.id) ? ' (archivado)' : '') + '. Usa otra letra.');
     const old = DB.Puntos.find(x => x.id === editSel.id);
-    const p = old ? { ...old, letra, nombre, ...(editSel.lat ? { lat: editSel.lat, lng: editSel.lng } : {}) } : { id: uid(), letra, nombre, lat: editSel.lat, lng: editSel.lng };
+    const p = old ? { ...old, letra, nombre, ...(editSel.lat ? { lat: editSel.lat, lng: editSel.lng } : {}) } : { id: uid(), letra, nombre, lat: editSel.lat, lng: editSel.lng, foto: '' };
+    if (editSel.fotoNueva !== undefined && (editSel.fotoNueva || (old && old.foto) || p.id in PEND_FOTOS)) PEND_FOTOS[p.id] = editSel.fotoNueva; // sent with Guardar todo
     editSel = null;
     stage('Puntos', p);
   },
@@ -3628,6 +3699,8 @@ const ACT = {
   },
   ptarch(el) { const on = !archivados().has(el.dataset.id); editSel = null; setArchivado(el.dataset.id, on); },
   ptcancel() { editSel = null; addingPunto = false; renderAll(); },
+  ptsinfoto() { guardarCamposPunto(); editSel.fotoNueva = ''; renderAll(); },
+  ptfotover(el) { map.closePopup(); const p = DB.Puntos.find(x => x.id === el.dataset.id); if (p) return openFotoPunto(p); },
   async ptubic() {
     const texto = $('#pt-ubic').value.trim();
     if (!texto) return toast('Pega un enlace de Google Maps o unas coordenadas.');
@@ -3672,6 +3745,12 @@ const INPUT = {
   quien(el) { store.set('territorios-quien', el.value); },
   s13anio(el) { s13Anio = +el.value; },
   nvnota(el) { nv.nota = el.value; },
+  async ptfoto(el) {
+    if (!el.files[0]) return;
+    guardarCamposPunto();
+    try { editSel.fotoNueva = await busy(shrinkPhoto(el.files[0]), 'Achicando la foto…'); } catch (e) { return; }
+    renderAll();
+  },
   async nvfile(el) {
     if (!el.files[0]) return;
     try { nv.foto = await busy(shrinkPhoto(el.files[0]), 'Achicando la foto…'); } catch (e) { return; }
@@ -3710,7 +3789,7 @@ const INPUT = {
   guiaop(el) { guide.setOpacity(+el.value); },
 };
 // "change" for controls that re-render or save; "input" for live text so typing never loses focus.
-const ON_CHANGE = ['pcond', 'pgcond', 'inffecha', 'tcolor', 'guiafile', 'p-fecha', 'p-hora', 'p-punto', 's13anio', 'nvfile', 'arname', 'arterr', 'sugn', 'sugnunca', 'sugunterr', 'pgc'];
+const ON_CHANGE = ['pcond', 'pgcond', 'inffecha', 'tcolor', 'guiafile', 'p-fecha', 'p-hora', 'p-punto', 's13anio', 'nvfile', 'ptfoto', 'arname', 'arterr', 'sugn', 'sugnunca', 'sugunterr', 'pgc'];
 
 function onAct(e) {
   const el = e.target.closest('[data-act]');
