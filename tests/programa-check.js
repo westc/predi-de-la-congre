@@ -62,12 +62,12 @@ const { elegirConductor } = require('./seed');
   await page.click('[data-act=pgguardar]'); await page.waitForTimeout(600);
   await page.screenshot({ path: 'out/programa.png' });
   // print + image
-  await page.click('[data-act=pgimprimir]'); await page.waitForTimeout(300);
+  await page.click('[data-act=pgimp]'); await page.click('[data-act=pgimprimir]'); await page.waitForTimeout(300);
   const printed = await page.evaluate(() => ({ rows: document.querySelectorAll('#s13 .pg-t tbody tr').length, esp: document.querySelectorAll('#s13 tr.esp').length, title: document.querySelector('#s13 h1').textContent, nota: !!document.querySelector('#s13 .pg-nota') }));
   console.log('printed:', printed); assert.equal(printed.rows, r.n + 1); assert.equal(printed.esp, 1); assert(printed.nota);
   await page.emulateMedia({ media: 'print' }); await page.pdf({ path: 'out/programa.pdf', format: 'Letter' }); await page.emulateMedia({ media: 'screen' });
   await page.click('[data-act=s13close]');
-  await page.click('[data-act=pgimagen]'); await page.waitForTimeout(800);
+  await page.click('[data-act=pgimp]'); await page.click('[data-act=pgimagen]'); await page.waitForTimeout(800);
   const img = await page.evaluate(() => { const i = document.querySelector('#share img'); return { w: i.naturalWidth, h: i.naturalHeight, text: document.querySelector('#share textarea').value.split('\n').length }; });
   console.log('image:', img); assert.equal(img.w, 1100); assert.equal(img.text, r.n + 2);
   await page.evaluate(() => { const i = document.querySelector('#share img'); const c = document.createElement('canvas'); c.width = i.naturalWidth; c.height = i.naturalHeight; c.getContext('2d').drawImage(i, 0, 0); window._png = c.toDataURL(); });

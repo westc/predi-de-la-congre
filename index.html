@@ -113,7 +113,8 @@
   input[type=text], input[type=number], input[type=date], input[type=password], select, textarea {
     width:100%; font:inherit; padding:7px 9px; border:1px solid #cfd4dc; border-radius:7px; background:#fff; color:var(--fg);
   }
-  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:0 10px; }
+  .grid2 { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:0 10px; }
+  .grid2 input { min-width:0; }
   button.b { font:inherit; font-size:calc(14px * var(--k)); padding:7px 12px; border-radius:7px; border:1px solid #cfd4dc; background:#fff; color:var(--fg); cursor:pointer; }
   button.b.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
   button.b.danger { color:#b42318; border-color:#f1b5ae; }
@@ -348,7 +349,7 @@
 <script src="manzanas.js"></script>
 <script>
 // ---------- settings ----------
-const VERSION = '38 · 03/11/2026'; // shown in Más; bump when changing this file
+const VERSION = '39 · 03/11/2026'; // shown in Más; bump when changing this file
 const PALETTE = ['#fff27a','#f7a8c8','#f9b26b','#ffd6b3','#b9dd8f','#80e0e8','#bba0ec','#a9c8f0','#d0d0d0','#f3df5a','#eaa3f2','#a3dcbc'];
 const PLAZA = [-17.794426, -63.134013];
 // Rough placement of the paper map over the streets: top-left, top-right, bottom-left corners.
@@ -941,7 +942,8 @@ function calendarioPanel() {
     (admin ? '<div class="actions" style="margin-top:0"><button class="b small primary" data-act="pgnueva">+ Salida</button>' +
       (delModelo ? '<button class="b small" data-act="pggenerar">+ ' + delModelo + ' de la semana modelo</button>' : '') +
       '<button class="b small" data-act="calsub" data-v="modelo">Semana modelo</button>' +
-      (list.length ? '<button class="b small" data-act="pgimprimir" title="Imprimir el programa" aria-label="Imprimir el programa">🖨</button><button class="b small" data-act="pgimagen" title="Imagen para WhatsApp" aria-label="Imagen para WhatsApp">📤</button>' : '') + '</div>' : '') +
+      '<button class="b small" data-act="pgimp" title="Imprimir o compartir el programa">🖨 Programa</button></div>'
+      : '<div class="actions" style="margin-top:0"><button class="b small" data-act="pgimp">🖨 Imprimir o compartir el programa</button></div>') +
     nuevaEn('') +
     (admin && list.some(x => conductorFuera(x.conductor)) ? '<p class="muted"><span class="warn">' + list.filter(x => conductorFuera(x.conductor)).length +
       ' con un conductor que no está en la lista</span> · ábrelas y elígelo, para que cada uno vea sus salidas e informes</p>' : '') +
@@ -1022,31 +1024,74 @@ function salidasDelModelo(m) {
   return out;
 }
 
-function programaHtml(m) {
-  const list = salidasDelMes(m);
+// ---------- the program to print or share (Calendario → 🖨, everyone): a week, a month or any dates ----------
+/** The salidas from desde to hasta (both included), in order. */
+function salidasEntre(desde, hasta) { return DB.Salidas.filter(s => s.fecha >= desde && s.fecha <= hasta).sort(bySalidaTime); }
+const sumarDias = (f, n) => { const [y, m, d] = f.split('-').map(Number); return ymd(new Date(y, m - 1, d + n)); };
+/** "del 2 al 8 de noviembre de 2026", "del 30 de noviembre al 6 de diciembre de 2026", "noviembre de 2026" (a whole month). */
+function rangoNombre(desde, hasta) {
+  const [y1, m1, d1] = desde.split('-').map(Number), [y2, m2, d2] = hasta.split('-').map(Number);
+  if (d1 === 1 && desde.slice(0, 7) === hasta.slice(0, 7) && sumarDias(hasta, 1).slice(8) === '01') return mesNombre(desde.slice(0, 7));
+  if (desde === hasta) return d1 + ' de ' + MESES_LARGOS[m1 - 1] + ' de ' + y1;
+  return 'del ' + d1 + (m1 === m2 && y1 === y2 ? '' : ' de ' + MESES_LARGOS[m1 - 1] + (y1 === y2 ? '' : ' de ' + y1)) + ' al ' + d2 + ' de ' + MESES_LARGOS[m2 - 1] + ' de ' + y2;
+}
+/** The printed program's heading: "NOVIEMBRE 2026" for a whole month (as on paper), else "DEL 2 AL 8 DE NOVIEMBRE DE 2026". */
+function tituloPrograma(desde, hasta) {
+  const r = rangoNombre(desde, hasta);
+  return (r === mesNombre(desde.slice(0, 7)) ? MESES_LARGOS[+desde.slice(5, 7) - 1] + ' ' + desde.slice(0, 4) : r).toUpperCase();
+}
+/** Which days the program dialog prints: this week, next week (Monday–Sunday), the month being viewed, or chosen dates. */
+let progImp = { rango: 'mes', desde: '', hasta: '' };
+function progRango() {
+  const hoy = ymd(new Date()), lunes = sumarDias(hoy, -((diaDe(hoy) + 6) % 7));
+  if (progImp.rango === 'semana') return [lunes, sumarDias(lunes, 6)];
+  if (progImp.rango === 'proxima') return [sumarDias(lunes, 7), sumarDias(lunes, 13)];
+  if (progImp.rango === 'fechas') return progImp.desde <= progImp.hasta ? [progImp.desde, progImp.hasta] : [progImp.hasta, progImp.desde];
+  const [y, m] = prog.mes.split('-').map(Number);
+  return [prog.mes + '-01', ymd(new Date(y, m, 0))];
+}
+function openProgramaElegir() {
+  if (!progImp.desde) { const hoy = ymd(new Date()); progImp.desde = hoy; progImp.hasta = sumarDias(hoy, 13); }
+  const [desde, hasta] = progRango(), n = salidasEntre(desde, hasta).length;
+  const op = (v, l) => '<button data-act="pgimprango" data-v="' + v + '" class="' + (progImp.rango === v ? 'on' : '') + '">' + l + '</button>';
+  $('#share .box').innerHTML = '<div class="row-t"><span>Programa para imprimir o compartir</span><button class="b small" data-act="shareclose">✕</button></div>' +
+    '<div class="seg seg-wrap">' + op('semana', 'Esta semana') + op('proxima', 'Próxima semana') + op('mes', MESES_LARGOS[+prog.mes.slice(5, 7) - 1][0].toUpperCase() + MESES_LARGOS[+prog.mes.slice(5, 7) - 1].slice(1)) + op('fechas', 'Fechas') + '</div>' +
+    (progImp.rango === 'fechas' ? '<div class="grid2"><div><label>Desde</label><input type="date" data-pi="desde" value="' + progImp.desde + '"></div>' +
+      '<div><label>Hasta</label><input type="date" data-pi="hasta" value="' + progImp.hasta + '"></div></div>' : '') +
+    '<p><b>' + esc(rangoNombre(desde, hasta)) + '</b> · ' + (n ? n + (n === 1 ? ' salida' : ' salidas') : '<span class="warn">no hay salidas</span>') + '</p>' +
+    '<div class="actions"><button class="b primary" data-act="pgimprimir"' + (n ? '' : ' disabled') + '>🖨 Imprimir o PDF</button>' +
+    '<button class="b" data-act="pgimagen"' + (n ? '' : ' disabled') + '>📤 Imagen para WhatsApp</button></div>';
+  $('#share').classList.add('show');
+}
+
+function programaHtml(desde, hasta) {
+  const list = salidasEntre(desde, hasta), unMes = desde.slice(0, 7) === hasta.slice(0, 7);
   return '<section class="pg-page"><div class="pg-sup">PROGRAMA PARA LA PREDICACIÓN - CONGRE. "' + CONGRE.toUpperCase() + '"</div>' +
-    '<h1>' + MESES_LARGOS[+m.slice(5, 7) - 1].toUpperCase() + ' ' + m.slice(0, 4) + '</h1>' +
+    '<h1>' + esc(tituloPrograma(desde, hasta)) + '</h1>' +
     '<table class="pg-t"><thead><tr><th>Fecha</th><th>Día</th><th>Hora</th><th></th><th>Conductor</th></tr></thead><tbody>' +
     list.map(s => {
       const d = diaDe(s.fecha);
-      return '<tr class="' + (s.especial === 'si' ? 'esp' : d === 6 ? 'sab' : d === 0 ? 'dom' : '') + '"><td>' + (s.especial === 'si' ? '**' : '') + +s.fecha.slice(8) + '</td>' +
+      return '<tr class="' + (s.especial === 'si' ? 'esp' : d === 6 ? 'sab' : d === 0 ? 'dom' : '') + '"><td>' + (s.especial === 'si' ? '**' : '') + diaCorto(s.fecha, unMes) + '</td>' +
         '<td>' + DIAS_LARGOS[d] + '</td><td>' + esc(horaCorta(s.hora)) + '</td><td>' + esc(lugarText(s)) + '</td><td>' + esc(s.conductor) + '</td></tr>';
     }).join('') + '</tbody></table>' +
     (list.some(s => s.especial === 'si') ? '<p class="pg-nota">** Arreglo especial de predicación</p>' : '') + '</section>';
 }
+/** The date column: the day number (one month), or day/month when the program spans two months. */
+function diaCorto(f, unMes) { return unMes ? String(+f.slice(8)) : +f.slice(8) + '/' + +f.slice(5, 7); }
 
 /** The program as a picture for WhatsApp, laid out like the printed one. */
-async function programaImagen(m) {
-  const list = salidasDelMes(m), esp = list.some(s => s.especial === 'si');
+async function programaImagen(desde, hasta) {
+  const list = salidasEntre(desde, hasta), esp = list.some(s => s.especial === 'si'), unMes = desde.slice(0, 7) === hasta.slice(0, 7);
   const W = 1100, PAD = 30, RH = 34, TOP = 110;
-  const cols = [[90, s => (s.especial === 'si' ? '**' : '') + +s.fecha.slice(8)], [130, s => DIAS_LARGOS[diaDe(s.fecha)]], [80, s => horaCorta(s.hora)],
+  const cols = [[90, s => (s.especial === 'si' ? '**' : '') + diaCorto(s.fecha, unMes)], [130, s => DIAS_LARGOS[diaDe(s.fecha)]], [80, s => horaCorta(s.hora)],
     [520, lugarText], [220, s => s.conductor || '']];
   const cv = document.createElement('canvas'), cx = cv.getContext('2d');
   cv.width = W; cv.height = TOP + RH * (list.length + 1) + (esp ? RH : 0) + PAD;
   cx.fillStyle = '#fff'; cx.fillRect(0, 0, W, cv.height);
   cx.textAlign = 'center'; cx.textBaseline = 'middle';
   cx.fillStyle = '#999'; cx.font = 'bold 24px Arial,sans-serif'; cx.fillText('PROGRAMA PARA LA PREDICACIÓN - CONGRE. "' + CONGRE.toUpperCase() + '"', W / 2, 40);
-  cx.fillStyle = '#000'; cx.font = 'bold 34px Arial,sans-serif'; cx.fillText(MESES_LARGOS[+m.slice(5, 7) - 1].toUpperCase() + ' ' + m.slice(0, 4), W / 2, 82);
+  const titulo = tituloPrograma(desde, hasta);
+  cx.fillStyle = '#000'; cx.font = 'bold ' + (titulo.length > 34 ? 28 : 34) + 'px Arial,sans-serif'; cx.fillText(titulo, W / 2, 82);
   const fit = (text, w) => { let t = String(text); while (t.length > 3 && cx.measureText(t).width > w - 12) t = t.slice(0, -2); return t === String(text) ? t : t + '…'; };
   const row = (y, bg, texts, font, color) => {
     cx.fillStyle = bg; cx.fillRect(PAD, y, W - 2 * PAD, RH);
@@ -1068,15 +1113,16 @@ async function programaImagen(m) {
   cx.strokeStyle = '#1f3d8a'; cx.lineWidth = 2; cx.strokeRect(PAD, TOP, W - 2 * PAD, RH * (list.length + 1) + (esp ? RH : 0));
   return new Promise(res => cv.toBlob(res, 'image/png'));
 }
-async function openProgramaImagen(m) {
-  const blob = await programaImagen(m), list = salidasDelMes(m);
-  const text = ['Programa de predicación — ' + mesNombre(m)].concat(list.map(s => DIAS_LARGOS[diaDe(s.fecha)].slice(0, 3) + ' ' + +s.fecha.slice(8) +
+async function openProgramaImagen(desde, hasta) {
+  const blob = await programaImagen(desde, hasta), list = salidasEntre(desde, hasta), nombre = rangoNombre(desde, hasta);
+  const unMes = desde.slice(0, 7) === hasta.slice(0, 7);
+  const text = ['Programa de predicación — ' + nombre].concat(list.map(s => DIAS_LARGOS[diaDe(s.fecha)].slice(0, 3) + ' ' + diaCorto(s.fecha, unMes) +
     ' · ' + horaCorta(s.hora) + ' · ' + lugarText(s) + (s.conductor ? ' · ' + s.conductor : '') + (s.especial === 'si' ? ' (**)' : ''))).join('\n');
-  shareData = { blob, text, name: 'programa-' + m + '.png' };
+  shareData = { blob, text, name: 'programa-' + desde + (desde === hasta ? '' : '_' + hasta) + '.png' };
   const url = URL.createObjectURL(blob);
   const canFiles = !!(navigator.canShare && navigator.canShare({ files: [new File([blob], shareData.name, { type: 'image/png' })] }));
-  $('#share .box').innerHTML = '<div class="row-t"><span>Programa de ' + esc(mesNombre(m)) + '</span><button class="b small" data-act="shareclose">✕</button></div>' +
-    '<img src="' + url + '" alt="Programa de ' + esc(mesNombre(m)) + '">' +
+  $('#share .box').innerHTML = '<div class="row-t"><span>Programa · ' + esc(nombre) + '</span><button class="b small" data-act="shareclose">✕</button></div>' +
+    '<img src="' + url + '" alt="Programa ' + esc(nombre) + '">' +
     '<div class="actions">' + (canFiles || navigator.share ? '<button class="b primary" data-act="sharenative">Compartir…</button>' : '') +
     '<a class="b" href="' + url + '" download="' + shareData.name + '">Descargar imagen</a></div>' +
     '<label>Texto</label><textarea rows="7" readonly onclick="this.select()">' + esc(text) + '</textarea>';
@@ -3090,7 +3136,7 @@ const AYUDA = {
     isAdmin() && 'El <b>conductor</b> se elige de la lista (Más → Conductores), así ve sus salidas e informes. <b>Otro…</b> es para alguien que no está en la lista.',
     isAdmin() && '<b>Sin territorio</b>: no se le asignan manzanas (predicación pública, por carta…). <b>Arreglo especial</b> sale con ** en el programa.',
     isAdmin() && 'Los cambios esperan en la barra naranja: <b>Guardar todo</b> los guarda y <b>Descartar</b> los deshace.',
-    isAdmin() && '🖨 imprime el programa (o lo guarda como PDF) y 📤 hace una imagen para WhatsApp.',
+    '<b>🖨 Programa</b>: esta semana, la próxima, el mes o las fechas que elijas, para imprimir (o guardar como PDF) o como imagen para WhatsApp.',
     'En el mes: verde = con manzanas, naranja = ' + (isAdmin() ? 'sin manzanas' : 'manzanas por asignar') + ', gris = sin territorio, con borde = especial.']],
   lugares: ['Lugares', () => ['Cada lugar de salida con la próxima salida de ahí (tócala para abrirla) y las siguientes.',
     '<b>Cómo llegar</b> abre Google Maps; <b>Compartir</b> manda la ubicación y las próximas salidas; <b>Ver en el mapa</b> lo muestra.',
@@ -3375,8 +3421,10 @@ const ACT = {
     stageMany('Salidas', rows.map(r => ({ ...r, _prog: 1 })));
     toast(rows.length + ' salidas agregadas. Cambia los conductores que haga falta y toca “Guardar todo”.', 6000);
   },
-  pgimprimir() { openPrint('Programa de ' + mesNombre(prog.mes), programaHtml(prog.mes)); },
-  async pgimagen() { await busy(openProgramaImagen(prog.mes), 'Preparando imagen…'); },
+  pgimp() { openProgramaElegir(); },
+  pgimprango(el) { progImp.rango = el.dataset.v; openProgramaElegir(); },
+  pgimprimir() { const [d, h] = progRango(); ACT.shareclose(); openPrint('Programa · ' + rangoNombre(d, h), programaHtml(d, h)); },
+  async pgimagen() { const [d, h] = progRango(); await busy(openProgramaImagen(d, h), 'Preparando imagen…'); },
   aradd() {
     const nombre = $('#ar-new').value.trim();
     if (!nombre) return toast('Escribe el nombre del área.');
@@ -3675,6 +3723,7 @@ $('#saving-skip').addEventListener('click', () => document.body.classList.remove
 // Buttons inside map popups (Leaflet stops their clicks from bubbling, so listen on the way down).
 map.getContainer().addEventListener('click', onAct, true);
 $('#share').addEventListener('click', e => { if (e.target.id === 'share') ACT.shareclose(); else onAct(e); });
+$('#share').addEventListener('change', e => { const k = e.target.dataset.pi; if (k && e.target.value) { progImp[k] = e.target.value; openProgramaElegir(); } });
 panel.addEventListener('input', e => {
   const k = e.target.dataset.in;
   if (k && INPUT[k] && ON_CHANGE.indexOf(k) < 0) INPUT[k](e.target);
