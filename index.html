@@ -349,7 +349,7 @@
 <script src="manzanas.js"></script>
 <script>
 // ---------- settings ----------
-const VERSION = '39 · 03/11/2026'; // shown in Más; bump when changing this file
+const VERSION = '40 · 03/11/2026'; // shown in Más; bump when changing this file
 const PALETTE = ['#fff27a','#f7a8c8','#f9b26b','#ffd6b3','#b9dd8f','#80e0e8','#bba0ec','#a9c8f0','#d0d0d0','#f3df5a','#eaa3f2','#a3dcbc'];
 const PLAZA = [-17.794426, -63.134013];
 // Rough placement of the paper map over the streets: top-left, top-right, bottom-left corners.
@@ -1185,9 +1185,10 @@ function recordatorio(nombre) {
   const suyas = faltanInformes().filter(x => mismoNombre(x.s.conductor, nombre)).sort((a, b) => bySalidaTime(a.s, b.s));
   const c = DB.Conductores.find(x => mismoNombre(x.nombre, nombre) && x.activo !== 'no');
   const link = c && c.clave ? conductorLink(c) : appLink(); // the superintendente has their personal link
-  return ['Hola, ' + nombre + '. Falta el informe de ' + (suyas.length === 1 ? 'esta salida' : 'estas salidas') + ':']
+  // formal (usted): it goes to a conductor from the superintendente or the siervo de territorios
+  return ['Saludos, ' + nombre + '. Le recordamos que falta el informe de ' + (suyas.length === 1 ? 'esta salida' : 'estas salidas') + ':']
     .concat(suyas.map(x => '• ' + when(x.s) + (x.s.punto ? ' · ' + puntoName(x.s.punto) : '') + ' — ' + describe(x.ids)))
-    .concat(['', 'Puedes enviarlo en la app (Informe): ' + link, 'Si no se salió, marca “No se hizo”. ¡Gracias!']).join('\n');
+    .concat(['', 'Puede enviarlo en la app, en la sección Informe: ' + link, 'Si no se salió, por favor marque “No se hizo”.', 'Muchas gracias.']).join('\n');
 }
 function openRecordar(nombre) {
   shareData = { text: recordatorio(nombre) };
@@ -2746,8 +2747,8 @@ function appLink() { return location.origin + location.pathname + (DEMO ? '?demo
 function openConductorShare(c) {
   const link = conductorLink(c);
   openLinkShare('Enlace de ' + c.nombre, link,
-    'Hola, ' + c.nombre + '. Este es tu enlace para la app de territorios: con él puedes enviar los informes de predicación. ' +
-    'Es solo para ti, no lo pases a otros.\n' + link,
+    'Saludos, ' + c.nombre + '. Este es su enlace personal para la app de territorios: con él puede enviar los informes de predicación. ' +
+    'Es solo para usted; por favor no lo comparta con otros.\n' + link,
     'Que lo escanee con la cámara de su celular, o mándaselo:');
 }
 function openAppShare() {
