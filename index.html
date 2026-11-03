@@ -136,6 +136,12 @@
   .row:first-of-type { border-top:0; }
   .row-t { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:6px; font-weight:600; }
   .row .nota { margin-top:6px; }
+  .row.elegida { background:#eef3ff; box-shadow:-10px 0 0 #eef3ff, 10px 0 0 #eef3ff; border-left:4px solid var(--accent); padding-left:8px; }
+  .row.flash { animation:flash 1.1s ease-out; }
+  @keyframes flash { 0% { background:#c9d8ff; } 100% { background:#eef3ff; } }
+  .inf-mapa .sw { margin-left:4px; }
+  .inf-pop .leaflet-popup-content { margin:10px 12px; min-width:220px; }
+  input.nota.falta { border-color:#d9820b; background:#fff8ee; }
   .pin-note { background:#fff4ce; color:#6b4e00; border-radius:6px; padding:4px 8px; margin:4px 0 6px; font-size:calc(13px * var(--k)); }
   .sel-row { display:flex; align-items:center; gap:8px; padding:5px 0; }
   .sel-row b { white-space:nowrap; min-width:58px; }
@@ -342,7 +348,7 @@
 <script src="manzanas.js"></script>
 <script>
 // ---------- settings ----------
-const VERSION = '35 · 02/11/2026'; // shown in Más; bump when changing this file
+const VERSION = '37 · 03/11/2026'; // shown in Más; bump when changing this file
 const PALETTE = ['#fff27a','#f7a8c8','#f9b26b','#ffd6b3','#b9dd8f','#80e0e8','#bba0ec','#a9c8f0','#d0d0d0','#f3df5a','#eaa3f2','#a3dcbc'];
 const PLAZA = [-17.794426, -63.134013];
 // Rough placement of the paper map over the streets: top-left, top-right, bottom-left corners.
@@ -1526,19 +1532,24 @@ function renderMap() {
   const unsaved = PEND.save.Bloques || {};
   const byStatus = colorBy === 'estado' && enPlan();
   const rep = consulta() && !nv ? hoyInformes() : {};
-  const heat = tab === 'territorio' && !terrSub && !shownSalida();
+  const heat = tab === 'territorio' && !terrSub && !shownSalida(), heatB = heat && terrColor === 'manzana';
+  const enInf = tab === 'informe' && !shownSalida() && !nv && !verBloque && verTerr == null;
+  let elegida = null;
   BL.forEach(b => {
-    const sel = hi && hi.has(b.id), r = rep[b.id];
+    const sel = hi && hi.has(b.id);
+    // Informe: each manzana as it's being marked (green / orange / red), the unmarked ones with a red border, the one tapped in blue
+    const fi = enInf && sel && infForm[b.id] && infForm[b.id].estado ? infForm[b.id] : null, azul = enInf && b.id === infSel;
+    const r = fi || rep[b.id];
     const dim = hi && !sel && !r && (tab === 'informe' || consulta());
     const poly = L.polygon(b.coords, {
-      color: sel ? '#c0392b' : unsaved[b.id] ? '#e67e22' : sat ? '#fff' : '#4a4a4a',
-      weight: sel ? 3.5 : unsaved[b.id] ? 2.5 : sat ? 1.5 : 1,
+      color: azul ? '#1f4fbf' : fi ? '#2b2b2b' : sel ? '#c0392b' : unsaved[b.id] ? '#e67e22' : sat ? '#fff' : '#4a4a4a',
+      weight: azul ? 6 : fi ? 2 : sel ? 3.5 : unsaved[b.id] ? 2.5 : sat ? 1.5 : 1,
       dashArray: unsaved[b.id] && !sel ? '6 4' : null,
-      fillColor: r ? ESTADO_COLOR[r.estado] : byStatus ? BHEAT[b.id] : heat ? HEATC[b.t] : tColor(b.t),
+      fillColor: r ? ESTADO_COLOR[r.estado] : byStatus || heatB ? BHEAT[b.id] : heat ? HEATC[b.t] : tColor(b.t),
       fillOpacity: dim ? (sat ? 0.1 : 0.25) : sat ? 0.4 : 0.7,
     });
     const nvs = casasDe(b.id).length;
-    poly.bindTooltip(b.n + (r ? ' ' + ESTADO_ICON[r.estado] : byStatus && PARC[b.id] ? ' ◐' : '') + (nvs ? '<span class="nv-b" title="No visitar">🚫' + (nvs > 1 ? nvs : '') + '</span>' : ''), { permanent: true, direction: 'center', className: 'lbl-b' });
+    poly.bindTooltip(b.n + (r ? ' ' + ESTADO_ICON[r.estado] : (byStatus || heatB) && PARC[b.id] ? ' ◐' : '') + (nvs ? '<span class="nv-b" title="No visitar">🚫' + (nvs > 1 ? nvs : '') + '</span>' : ''), { permanent: true, direction: 'center', className: 'lbl-b' });
     poly.on('click', e => onBlockClick(b, e));
     if (PUEDE_HOVER && enPlan() && !nv && !verBloque && verTerr == null) {
       poly.on('mouseover mousemove', e => tipShow(b, e.latlng));
@@ -1546,7 +1557,9 @@ function renderMap() {
     }
     poly._bid = b.id;
     gBloques.addLayer(poly);
+    if (azul) elegida = poly;
   });
+  if (elegida) elegida.bringToFront();
   const terr = {};
   BL.forEach(b => (terr[b.t] = terr[b.t] || []).push(centroid(b.coords)));
   Object.keys(terr).forEach(t => {
@@ -1601,9 +1614,7 @@ function onBlockClick(b, e) {
   if (verBloque || verTerr != null) { verBloque = b.id; return renderAll(); } // a history is open: show this manzana's
   if (tab === 'informe' && !shownSalida()) {
     if (!infForm[b.id]) infForm[b.id] = { salida: '', estado: '', porcentaje: '', nota: '' };
-    renderAll();
-    const row = document.querySelector('[data-row="' + b.id + '"]');
-    if (row) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    elegirInforme(b.id, e.latlng);
   } else if (enPlan()) {
     if (!isAdmin()) return;
     const i = plan.bloques.indexOf(b.id);
@@ -1613,7 +1624,9 @@ function onBlockClick(b, e) {
   } else if (tab === 'territorio' && terrSub === 'editar' && isAdmin() && !shownSalida()) {
     editSub = 'bloques'; selectForEdit({ kind: 'bloque', id: b.id });
   } else if (tab === 'territorio' && !shownSalida()) {
-    L.popup().setLatLng(e.latlng).setContent('<b>Territorio ' + b.t + '</b>' + terrStatus(b.t) +
+    L.popup().setLatLng(e.latlng).setContent('<b>' + esc(bName(b)) + '</b><div>' + (COMP[b.id] ? '✓ Completada ' + ago(COMP[b.id]) + ' <span class="muted">(' + fmt(COMP[b.id]) + ')</span>' : 'Nunca completada') + '</div>' +
+      (PARC[b.id] ? '<div>◐ ' + esc(parcialText(b.id)) + '</div>' : '') +
+      '<div style="margin-top:6px"><b>Territorio ' + b.t + '</b></div>' + terrStatus(b.t) +
       '<div class="actions"><button class="b small" data-act="bhist" data-id="' + b.id + '">📜 Manzana ' + b.n + '</button>' +
       '<button class="b small" data-act="thist" data-v="' + b.t + '">📜 Territorio ' + b.t + '</button></div>').openOn(map);
   } else {
@@ -1851,10 +1864,15 @@ function atras() {
   map.closePopup(); mapaGrande = false;
   renderAll(); panel.scrollTop = 0;
 }
-/** Opens a section (tab bar, sidebar, Más), closing whatever was open over it. Its own tab again goes back to its start. */
+/**
+ * Opens a section (tab bar, sidebar, Más), closing whatever was open over it. A section opens at its start (Territorio on
+ * the heat map, not Editar mapa); its own tab again also goes back there. The Planificar editor stays open, it's work.
+ */
 function irA(t) {
   if (shapeLayer) ACT.bcancel();
-  if (t === tab) { terrSub = ''; masSub = ''; calSub = ''; prog.edit = null; }
+  if (t === tab) prog.edit = null;
+  else if (prog.edit && prog.edit.kind === 'modelo') prog.edit = null;
+  terrSub = ''; masSub = ''; calSub = '';
   tab = t; editSel = null; addingPunto = false; verSalida = ''; showLogin = false; nv = null; verBloque = ''; verTerr = null; verMapa = false; mapaGrande = false;
   map.closePopup();
   renderAll(); panel.scrollTop = 0;
@@ -2223,6 +2241,48 @@ function fillInforme() {
   }));
 }
 
+// Informe on the map: the manzana tapped (infSel) is outlined in blue, its row lights up, and a bubble on the map marks it.
+let infSel = '';
+const infPopup = L.popup({ offset: [0, -2], autoPanPadding: [30, 30], className: 'inf-pop' });
+function infPopHtml(id) {
+  const f = infForm[id];
+  return '<b>' + esc(bName(BYID[id])) + '</b>' +
+    '<div class="seg" style="margin-top:6px">' + Object.keys(ESTADOS).map(k => '<button data-act="est" data-id="' + id + '" data-v="' + k + '" class="' + (f.estado === k ? 'on' : '') + '">' + ESTADOS[k] + '</button>').join('') + '</div>' +
+    (f.estado === 'parcial' ? '<div class="seg" style="margin-top:6px">' + ['25', '50', '75'].map(p => '<button data-act="pct" data-id="' + id + '" data-v="' + p + '" class="' + (f.porcentaje === p ? 'on' : '') + '">~' + p + '%</button>').join('') + '</div>' +
+      '<input type="text" class="nota' + (f.nota.trim() ? '' : ' falta') + '" data-in="popnota" data-id="' + id + '" value="' + esc(f.nota) + '" placeholder="¿Qué quedó pendiente? (obligatorio)">' +
+      '<div class="actions" style="margin-top:6px"><button class="b small primary" data-act="poplisto" data-id="' + id + '">Listo</button></div>'
+      : '<div class="muted" style="margin-top:6px">Toca otra manzana para seguir. Enviar está en el informe.</div>');
+}
+/** Shows the bubble's content (after the click that changed it is over: replacing the button mid-click would close it). */
+function infPopPoner(id) {
+  setTimeout(() => {
+    if (!infPopup.isOpen() || infPopup._id !== id) return;
+    infPopup.setContent(infPopHtml(id));
+    const inp = infPopup.getElement().querySelector('input');
+    if (inp) inp.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') ACT.poplisto(inp); }); // typing doesn't move the map
+  });
+}
+/** Picks a manzana in Informe (from the map, or its name in the list): blue on the map, its row lit, the bubble open. */
+function elegirInforme(id, latlng) {
+  infSel = id;
+  renderAll();
+  const row = panel.querySelector('[data-row="' + id + '"]');
+  if (row) {
+    const d = row.closest('details'); if (d) d.open = true; // a salida already reported
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash');
+  }
+  infPopup._id = id;
+  infPopup.setLatLng(latlng || centroid(BYID[id].coords)).setContent('').openOn(map);
+  infPopPoner(id);
+}
+/** After marking in the bubble: it stays for Parcial (to choose the %), else closes so the next manzana can be tapped. */
+function trasMarcar(el, id, cerrar) {
+  if (!infPopup.isOpen() || infPopup._id !== id) return;
+  if (cerrar) setTimeout(() => map.closePopup(infPopup), 350); else infPopPoner(id);
+  const row = panel.querySelector('[data-row="' + id + '"]');
+  if (row && el.closest('.leaflet-popup')) row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
 let infOtros = false; // a conductor sees their own salidas in Informe unless they ask for the others too
 /**
  * What Informe shows for infFecha: salidas still to report, those already reported (every manzana has an informe),
@@ -2252,15 +2312,18 @@ function informePanel() {
     const s = f.salida && DB.Salidas.find(x => x.id === f.salida);
     const asignada = s && salidaNotes(s)[id];
     const r = f.informe;
-    return '<div class="row" data-row="' + id + '"><div class="row-t"><button class="link" data-act="bhist" data-id="' + id + '" title="Ver el historial">' + esc(bName(b)) + '</button>' +
-      (inSalida(id) || r ? '' : '<button class="b small" data-act="infdrop" data-id="' + id + '">Quitar</button>') + '</div>' +
+    return '<div class="row' + (id === infSel ? ' elegida' : '') + '" data-row="' + id + '"><div class="row-t"><button class="link" data-act="infsel" data-id="' + id + '" title="Verla en el mapa">' +
+        (f.estado ? ESTADO_ICON[f.estado] + ' ' : '') + esc(bName(b)) + '</button>' +
+      '<span style="white-space:nowrap">' + (inSalida(id) || r ? '' : '<button class="b small" data-act="infdrop" data-id="' + id + '">Quitar</button> ') +
+      '<button class="b small" data-act="bhist" data-id="' + id + '" title="Ver el historial" aria-label="Historial">📜</button></span></div>' +
       (asignada ? '<div class="pin-note">📌 ' + esc(asignada) + '</div>' : '') + nvList([id]) +
       (r ? '<div class="muted">Informado' + (r.quien ? ' por ' + esc(r.quien) : '') + (r.editadoPor ? ' · cambiado por ' + esc(r.editadoPor) : '') +
         (cola().some(x => x.id === r.id) ? ' · ⏳ espera señal' : '') + '</div>' : '') +
       (r && !f.estado ? '<div class="pin-note">Al guardar se borrará este informe.</div>' : '') +
       '<div class="seg">' + Object.keys(ESTADOS).map(k => '<button data-act="est" data-id="' + id + '" data-v="' + k + '" class="' + (f.estado === k ? 'on' : '') + '">' + ESTADOS[k] + '</button>').join('') + '</div>' +
       (f.estado === 'parcial' ? ' <div class="seg" style="margin-top:6px">' + ['25', '50', '75'].map(p => '<button data-act="pct" data-id="' + id + '" data-v="' + p + '" class="' + (f.porcentaje === p ? 'on' : '') + '">~' + p + '%</button>').join('') + '</div>' : '') +
-      (f.estado ? '<input type="text" class="nota" data-in="nota" data-id="' + id + '" value="' + esc(f.nota) + '" placeholder="' + (f.estado === 'parcial' ? '¿Qué quedó pendiente? (ej.: falta lado de la calle 5)' : 'Nota (opcional)') + '">' : '') +
+      (f.estado ? '<input type="text" class="nota' + (f.estado === 'parcial' && !f.nota.trim() ? ' falta' : '') + '" data-in="nota" data-id="' + id + '" value="' + esc(f.nota) + '" placeholder="' +
+        (f.estado === 'parcial' ? '¿Qué quedó pendiente? (obligatorio; ej.: falta lado de la calle 5)' : 'Nota (opcional)') + '">' : '') +
       '</div>';
   };
   const card = s => '<div class="card"><div class="card-h">' + (s.hora ? esc(s.hora) + ' · ' : '') + (s.grupo ? esc(s.grupo) + ' · ' : '') + (s.punto ? esc(puntoName(s.punto)) : 'Salida') + '</div>' +
@@ -2271,6 +2334,9 @@ function informePanel() {
   const algo = v.pend.length + v.hechas.length + v.extras.length > 0;
   const hay = informeIds().some(id => infForm[id].informe);
   return '<label style="margin-top:0">Fecha</label><input type="date" data-in="inffecha" value="' + infFecha + '" max="' + ymd(new Date()) + '">' +
+    (algo ? '<p class="muted inf-mapa">En el mapa, toca una manzana para marcarla: <span class="sw" style="background:' + ESTADO_COLOR.completo + '"></span>completo ' +
+      '<span class="sw" style="background:' + ESTADO_COLOR.parcial + '"></span>parcial <span class="sw" style="background:' + ESTADO_COLOR.no + '"></span>no se hizo · ' +
+      'borde rojo: falta marcar · azul: la elegida.</p>' : '') +
     (WHO.role === 'conductor' && (v.otras || infOtros) ? '<div class="seg" style="margin-top:10px">' +
       '<button data-act="infotros" data-v="" class="' + (infOtros ? '' : 'on') + '">Mis salidas</button>' +
       '<button data-act="infotros" data-v="1" class="' + (infOtros ? 'on' : '') + '">También las de otros (' + v.otras + ')</button></div>' : '') +
@@ -2376,6 +2442,8 @@ const ORDEN_REGISTRO = {
   numero: { nombre: 'Número', texto: 'Por número de territorio.', f: (a, b) => a - b },
   reciente: { nombre: 'Más recientes', texto: 'Primero los completados más recientemente.', f: (a, b) => (lastDone(b) || '0').localeCompare(lastDone(a) || '0') || a - b },
 };
+// Territorio's heat map: whole territories (by their round) or each manzana (by its last Completo), remembered on each device.
+let terrColor = store.get('predi-terr-color') === 'manzana' ? 'manzana' : 'territorio';
 let rgOrden = ORDEN_REGISTRO[store.get('predi-rg-orden')] ? store.get('predi-rg-orden') : 'atraso';
 
 // ---------- Territorio: the heat map and record of the territories (S-13); Editar mapa for the manzanas ----------
@@ -2388,7 +2456,11 @@ function territorioPanel() {
   const primero = Math.min(hoyAnio, ...Object.values(CICLOS).flat().map(c => anioServicio(c.inicio)));
   const anios = [];
   for (let y = hoyAnio; y >= primero; y--) anios.push(y);
-  return heatLegend(ts.map(lastDone), 'Completado hace poco', 'Hace más tiempo', 'Nunca completado') +
+  return '<div class="mes-nav" style="margin:0"><span class="muted">Colorear por</span><span class="seg">' + [['territorio', 'Territorio'], ['manzana', 'Manzana']].map(([v, l]) =>
+      '<button data-act="terrcolor" data-v="' + v + '" class="' + (terrColor === v ? 'on' : '') + '">' + l + '</button>').join('') + '</span></div>' +
+    (terrColor === 'manzana' ? heatLegend(Object.values(COMP), 'Completada hace poco', 'Hace más tiempo', 'Nunca completada') +
+        '<p class="muted" style="margin-top:0">◐ = tiene trabajo parcial después de completarse. Toca una manzana para ver cuándo.</p>'
+      : heatLegend(ts.map(lastDone), 'Completado hace poco', 'Hace más tiempo', 'Nunca completado')) +
     '<div class="actions"><button class="b" data-act="terrsub" data-v="editar">✏️ Editar mapa</button></div>' +
     '<div class="mes-nav" style="margin-top:16px"><h3 style="margin:0">Territorios (' + ts.length + ')</h3>' +
       '<span class="seg seg-wrap" style="margin-left:auto">' + Object.keys(ORDEN_REGISTRO).map(k => '<button data-act="rgorden" data-v="' + k + '" class="' + (rgOrden === k ? 'on' : '') + '" title="' + ORDEN_REGISTRO[k].texto + '">' +
@@ -2937,7 +3009,9 @@ const AYUDA = {
   mapa: ['Mapa', () => ['Toca una manzana para ver cuándo se trabajó, su historial y las casas que no se visitan.', 'Toca el número grande de un territorio para acercarte.',
     '◎ muestra dónde estás; <b>Calles / Satélite</b> cambia el fondo.', 'Los colores de hoy: verde = completo, naranja = parcial, rojo = no se hizo.']],
   informe: ['Informe', () => ['Elige la fecha (hoy viene puesta).',
-    'Marca cada manzana: <b>Completo</b>, <b>Parcial</b> (con cuánto se hizo y una nota de qué falta) o <b>No se hizo</b>. Luego toca <b>Enviar informe</b>.',
+    'Toca una manzana en el mapa (o su nombre en la lista) y márcala: <b>Completo</b>, <b>Parcial</b> o <b>No se hizo</b>. En el mapa se pinta verde, naranja o rojo; las que faltan tienen borde rojo.',
+    '<b>Parcial</b> pide cuánto se hizo y una nota de qué quedó pendiente (obligatoria). Completo y No se hizo no necesitan nada más.',
+    'Al terminar, toca <b>Enviar informe</b>.',
     WHO.role === 'conductor' && 'Primero salen tus salidas. <b>También las de otros</b> muestra las demás de ese día.',
     'Las salidas ya informadas están en <b>✓ Ya informadas</b>: ábrelo para corregir. Tocar otra vez el estado marcado borra ese informe.',
     'Para informar una manzana que no estaba en la salida, tócala en el mapa.',
@@ -2950,6 +3024,7 @@ const AYUDA = {
     PUEDE_HOVER && 'Con el mouse sobre una manzana ves cómo está y botones para agregarla o ver su historial.',
     'Toca <b>Guardar</b>. ‹ sale sin guardar.']],
   territorio: ['Territorio', () => ['Los colores del mapa: más claro = completado hace poco, más oscuro = hace más tiempo, gris = nunca completado.',
+    '<b>Colorear por</b>: <b>Territorio</b> pinta cada territorio entero; <b>Manzana</b> pinta cada manzana según la última vez que se completó (◐ = con trabajo parcial después).',
     'Toca un territorio para ver sus manzanas, sus vueltas y sus informes.', 'Un territorio queda completado cuando la última de sus manzanas tiene un informe “Completo”.',
     '<b>Registro S-13</b>: elige el año de servicio y toca <b>Ver</b> para imprimirlo.', '<b>Editar mapa</b>: las manzanas, las áreas y la imagen guía.']],
   editar: ['Editar mapa', () => ['<b>Manzanas</b>: toca una manzana gris para darle territorio y número; toca una ya hecha para cambiarla. ⬠ (a la izquierda del mapa) dibuja una nueva.',
@@ -3050,16 +3125,37 @@ const ACT = {
   shareclose() { $('#share').classList.remove('show'); },
   goinf(el) {
     tab = 'informe'; showLogin = false; nv = null; verBloque = ''; verTerr = null; verSalida = ''; verMapa = false; mapaGrande = false;
-    infFecha = el.dataset.v; infForm = {}; map.closePopup(); renderAll(); panel.scrollTop = 0;
+    infFecha = el.dataset.v; infForm = {}; infSel = ''; map.closePopup(); renderAll(); panel.scrollTop = 0;
   },
   est(el) {
-    const f = infForm[el.dataset.id];
+    const id = el.dataset.id, f = infForm[id];
     f.estado = f.estado === el.dataset.v ? '' : el.dataset.v;
     if (f.estado !== 'parcial') f.porcentaje = '';
-    f.touched = true;
+    f.touched = true; infSel = id;
     renderAll();
+    trasMarcar(el, id, f.estado === 'completo' || f.estado === 'no');
   },
-  pct(el) { const f = infForm[el.dataset.id]; f.porcentaje = f.porcentaje === el.dataset.v ? '' : el.dataset.v; f.touched = true; renderAll(); },
+  pct(el) {
+    const id = el.dataset.id, f = infForm[id];
+    f.porcentaje = f.porcentaje === el.dataset.v ? '' : el.dataset.v; f.touched = true; infSel = id;
+    renderAll();
+    trasMarcar(el, id, false); // Parcial still needs its note
+  },
+  poplisto(el) {
+    const id = el.dataset.id, f = infForm[id];
+    if (f.estado === 'parcial' && !f.nota.trim()) {
+      toast('Escribe qué quedó pendiente.');
+      const inp = infPopup.getElement() && infPopup.getElement().querySelector('input'); if (inp) inp.focus();
+      return;
+    }
+    map.closePopup(infPopup); renderAll();
+  },
+  infsel(el) {
+    const id = el.dataset.id;
+    elegirInforme(id);
+    const c = centroid(BYID[id].coords);
+    if (!map.getBounds().pad(-0.1).contains(c)) map.panTo(c);
+  },
   infdrop(el) { delete infForm[el.dataset.id]; renderAll(); },
   allno() {
     // only what's on screen: never the salidas of other conductores left out
@@ -3084,6 +3180,14 @@ const ACT = {
     if (!rows.length && !borrar.length) {
       return toast(Object.values(infForm).some(f => f.informe) ? 'No hay cambios para guardar.' : 'Marca al menos una manzana.');
     }
+    // Parcial needs a note saying what's left (Completo and No se hizo don't)
+    const sinNota = rows.find(r => r.estado === 'parcial' && !r.nota);
+    if (sinNota) {
+      toast('Falta la nota de ' + bShort(BYID[sinNota.bloque]) + ': ¿qué quedó pendiente?', 5000);
+      ACT.infsel({ dataset: { id: sinNota.bloque } });
+      const inp = panel.querySelector('[data-in=nota][data-id="' + sinNota.bloque + '"]'); if (inp) inp.focus({ preventScroll: true });
+      return;
+    }
     if (!quien) return toast('Escribe tu nombre.');
     try {
       setDB(await busy(api('informes', rows, borrar), 'Enviando informe…'));
@@ -3095,7 +3199,7 @@ const ACT = {
       rebuild();
       toast('Sin señal: el informe quedó guardado en este celular y se enviará solo cuando haya conexión.', 7000);
     }
-    infForm = {};
+    infForm = {}; infSel = ''; map.closePopup();
     renderAll();
   },
   pdrop(el) { plan.bloques = plan.bloques.filter(id => id !== el.dataset.id); plan.sug = null; renderAll(); },
@@ -3137,6 +3241,7 @@ const ACT = {
     stage('Config', { id: 'semana_modelo', valor: JSON.stringify(semanaModelo().filter(x => x.id !== m.id)) });
   },
   pgcancelar() { prog.edit = null; enSuLugar(); },
+  terrcolor(el) { terrColor = el.dataset.v; store.set('predi-terr-color', terrColor); map.closePopup(); enSuLugar(); },
   rgorden(el) { rgOrden = el.dataset.v; store.set('predi-rg-orden', rgOrden); enSuLugar(); },
   async pgguardar() {
     const e = prog.edit, y = panel.scrollTop;
@@ -3378,8 +3483,17 @@ const ACT = {
 };
 
 const INPUT = {
-  inffecha(el) { infFecha = el.value; infForm = {}; renderAll(); },
-  nota(el) { infForm[el.dataset.id].nota = el.value; infForm[el.dataset.id].touched = true; },
+  inffecha(el) { infFecha = el.value; infForm = {}; infSel = ''; map.closePopup(); renderAll(); },
+  nota(el) {
+    const f = infForm[el.dataset.id];
+    f.nota = el.value; f.touched = true;
+    el.classList.toggle('falta', f.estado === 'parcial' && !el.value.trim());
+  },
+  popnota(el) { // the note typed in the map's bubble, copied to the list
+    INPUT.nota(el);
+    const otra = panel.querySelector('[data-in=nota][data-id="' + el.dataset.id + '"]');
+    if (otra) { otra.value = el.value; otra.classList.toggle('falta', el.classList.contains('falta')); }
+  },
   quien(el) { store.set('territorios-quien', el.value); },
   s13anio(el) { s13Anio = +el.value; },
   nvnota(el) { nv.nota = el.value; },
@@ -3441,6 +3555,7 @@ panel.addEventListener('change', e => {
   if (k && INPUT[k] && ON_CHANGE.indexOf(k) >= 0) INPUT[k](e.target);
 });
 panel.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'pin') ACT.pin(); });
+map.getContainer().addEventListener('input', e => { if (e.target.dataset.in === 'popnota') INPUT.popnota(e.target); });
 $('#nav').addEventListener('click', e => { const b = e.target.closest('button[data-tab]'); if (b) irA(b.dataset.tab); });
 $('#back').addEventListener('click', atras);
 $('#help').addEventListener('click', abrirAyuda);
